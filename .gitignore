@@ -1,0 +1,9 @@
+# Git ignore generated and local files
+.gradle/
+**/build/
+/local.properties
+*.iml
+/.idea/
+app/build/
+**/.DS_Store
+
