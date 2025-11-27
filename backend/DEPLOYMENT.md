@@ -19,6 +19,11 @@ uvicorn main:app --host 0.0.0.0 --port 10102
 ```
 Run uvicorn under a process manager (systemd/supervisor) for persistence.
 
+Proxy bypass (if local proxies interfere): use the provided script which clears proxy env vars:
+```
+./start.sh
+```
+
 Systemd sample (`/etc/systemd/system/txhm-gto.service`):
 ```
 [Unit]
@@ -28,7 +33,7 @@ After=network.target
 [Service]
 User=YOURUSER
 WorkingDirectory=/path/to/txhmHelper/backend/server
-ExecStart=/path/to/txhmHelper/backend/server/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 10102
+ExecStart=/path/to/txhmHelper/backend/server/start.sh
 Restart=always
 Environment=PYTHONUNBUFFERED=1
 
