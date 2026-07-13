@@ -77,6 +77,8 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 precision = uiState.precision,
                 samples = uiState.odds?.samples ?: 0,
                 recommendation = uiState.recommendation,
+                gtoStatus = uiState.gtoStatus,
+                gtoAdvice = uiState.gtoAdvice,
                 onPrecisionChange = viewModel::setPrecision
             )
 
@@ -111,6 +113,8 @@ private fun OddsPanel(
     precision: Precision,
     samples: Int,
     recommendation: String?,
+    gtoStatus: GtoStatus,
+    gtoAdvice: String?,
     onPrecisionChange: (Precision) -> Unit
 ) {
     ElevatedCard(
@@ -161,6 +165,26 @@ private fun OddsPanel(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary
             )
+        }
+        when (gtoStatus) {
+            GtoStatus.LOADING -> Text(
+                text = "GTO: calculating...",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelMedium
+            )
+            GtoStatus.AVAILABLE -> Text(
+                text = "GTO: $gtoAdvice",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+            GtoStatus.UNAVAILABLE -> Text(
+                text = "GTO: server unavailable",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+            GtoStatus.IDLE -> Unit
         }
         if (isComputing) {
             Text(

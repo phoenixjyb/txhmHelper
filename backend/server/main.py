@@ -18,7 +18,7 @@ class SolvePayload(BaseModel):
 
 class SolveResponse(BaseModel):
     strategy: Dict[str, float]
-    note: str = "Strategy from simplified CFR solver (single bet size, no raises)."
+    note: str = "Strategy from chance-sampled CFR in a heads-up, one-street abstraction (no raises)."
 
 
 @app.get("/health")
@@ -29,14 +29,13 @@ def health():
 @app.post("/solve", response_model=SolveResponse)
 def post_solve(payload: SolvePayload):
     try:
-        bet_frac = payload.bet_sizing[0] if payload.bet_sizing else 1.0
         strategy = solve_cfr(
             stage=payload.stage,
             hole=payload.hole,
             board=payload.board,
             pot=payload.pot,
             effective_stack=payload.effective_stack,
-            bet_frac=bet_frac,
+            bet_sizes=payload.bet_sizing,
         )
     except Exception as exc:
         traceback.print_exc()

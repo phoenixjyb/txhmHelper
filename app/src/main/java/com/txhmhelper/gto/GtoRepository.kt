@@ -14,9 +14,9 @@ class GtoRepository(
         board: List<Card?>,
         pot: Double = 1.0,
         effectiveStack: Double = 100.0
-    ): GtoSolveResponse? = withContext(Dispatchers.IO) {
+    ): GtoSolveResponse = withContext(Dispatchers.IO) {
         val boardCards = board.filterNotNull()
-        if (hole.size < 2) return@withContext null
+        require(hole.size == 2) { "Exactly two hole cards are required." }
         val req = GtoSolveRequest(
             stage = stage,
             hole = hole.take(2).map { it.toApiId() },
@@ -24,7 +24,7 @@ class GtoRepository(
             pot = pot,
             effectiveStack = effectiveStack
         )
-        runCatching { service.solve(req) }.getOrNull()
+        service.solve(req)
     }
 }
 

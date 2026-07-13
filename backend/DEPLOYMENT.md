@@ -24,7 +24,14 @@ Proxy bypass (if local proxies interfere): use the provided script which clears 
 ./start.sh
 ```
 
-Systemd sample (`/etc/systemd/system/txhm-gto.service`):
+The repository includes a ready-to-install unit for the current server at
+`backend/server/txhm-gto.service`. It runs as `converge` from
+`/home/converge/data/yanbo/txhmHelper`. Install it with:
+```
+sudo install -m 644 backend/server/txhm-gto.service /etc/systemd/system/txhm-gto.service
+```
+
+For another host, update the user and paths in the unit. The equivalent unit is:
 ```
 [Unit]
 Description=TXHM GTO API
@@ -60,12 +67,12 @@ Adjust port mapping or uvicorn args as needed.
 - Health: `GET /health` -> `{ "status": "ok" }`
 - Solve: `POST /solve`
   - Body: `{ "stage": "flop|turn|river|preflop", "hole": ["As","Kd"], "board": ["Jh","Td","2c"], "pot": 10.0, "effective_stack": 100.0, "bet_sizing": [0.33, 0.5, 1.0] }`
-  - Returns: `{ "strategy": { "check": 0.42, "bet": 0.58 }, "note": "Strategy from simplified CFR solver (single bet size, no raises)." }`
+  - Returns: `{ "strategy": { "check": 0.42, "bet_33": 0.18, "bet_50": 0.40 }, "note": "Strategy from chance-sampled CFR in a heads-up, one-street abstraction (no raises)." }`
 
 ## 5) Solver notes
-- `solver_cfr.py` runs Monte Carlo CFR across streets with a single bet size and no raises. It samples villain hands and runouts to the river. This is a simplified solver, not full-scale GTO; extend the bet tree/abstractions for richer play.
-- Tune iterations/sampling in `solve_cfr` for speed vs. quality (defaults: ~3000 iterations, ~4000 villain samples).
-- Consider adding hand/board bucketing and multiple bet sizes for stronger strategies, leveraging the 4090.
+- `solver_cfr.py` runs chance-sampled CFR in a heads-up, one-street game. It samples villain hands and runouts to the river, while its information sets contain only the acting player's cards, the known board, and action history.
+- The solver supports the bet sizes supplied in `bet_sizing`, but deliberately has no raises, range editor, or post-action street transitions. It should be described as a GTO approximation for that specific abstraction, not full no-limit Hold'em GTO.
+- Run `python -m unittest test_solver_cfr.py` before deployment. Benchmark the iteration count on the 4090 server before exposing longer solves to the app.
 
 ## 6) Client config
 - Android app base URL is `http://192.168.100.100:10102/` via BuildConfig. Ensure the server is reachable from the device (same network or proper routing).

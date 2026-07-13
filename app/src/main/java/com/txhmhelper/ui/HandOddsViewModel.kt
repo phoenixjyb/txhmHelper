@@ -11,6 +11,7 @@ import com.txhmhelper.odds.OddsResult
 import com.txhmhelper.odds.Precision
 import com.txhmhelper.model.HandType
 import com.txhmhelper.gto.GtoRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +26,12 @@ data class HandOddsUiState(
     val isComputing: Boolean = false,
     val precision: Precision = Precision.FAST,
     val recommendation: String? = null,
+    val gtoAdvice: String? = null,
+    val gtoStatus: GtoStatus = GtoStatus.IDLE,
     val error: String? = null
 )
+
+enum class GtoStatus { IDLE, LOADING, AVAILABLE, UNAVAILABLE }
 
 class HandOddsViewModel(
     private val calculator: OddsCalculator = OddsCalculator(),
@@ -37,6 +42,7 @@ class HandOddsViewModel(
     val uiState = _uiState.asStateFlow()
 
     private var computeJob: Job? = null
+    private var gtoJob: Job? = null
 
     fun selectSlot(slot: TargetSlot) {
         _uiState.update { it.copy(targetSlot = slot, error = null) }
@@ -53,12 +59,15 @@ class HandOddsViewModel(
             _uiState.update { it.copy(error = "Card already used") }
             return
         }
+        gtoJob?.cancel()
         val updatedBoard = setCard(current.boardState, current.targetSlot, card)
         val nextTarget = updatedBoard.nextTarget()
         _uiState.update {
             it.copy(
                 boardState = updatedBoard,
                 targetSlot = nextTarget,
+                gtoAdvice = null,
+                gtoStatus = GtoStatus.IDLE,
                 error = null
             )
         }
@@ -66,6 +75,7 @@ class HandOddsViewModel(
     }
 
     fun clearSlot(slot: TargetSlot) {
+        gtoJob?.cancel()
         val updatedBoard = when (slot) {
             is TargetSlot.Hole -> _uiState.value.boardState.copy(
                 hole = _uiState.value.boardState.hole.toMutableList().also { it[slot.index] = null }
@@ -80,13 +90,17 @@ class HandOddsViewModel(
                 targetSlot = slot,
                 odds = if (updatedBoard.hole.any { card -> card == null }) null
                 else if (updatedBoard.stage() == Stage.PREFLOP) null
-                else it.odds
+                else it.odds,
+                gtoAdvice = null,
+                gtoStatus = GtoStatus.IDLE
             )
         }
         scheduleCompute()
     }
 
     fun reset() {
+        computeJob?.cancel()
+        gtoJob?.cancel()
         _uiState.value = HandOddsUiState()
     }
 
@@ -157,19 +171,30 @@ class HandOddsViewModel(
     }
 
     private fun fetchGtoAdvice() {
-        val state = _uiState.value.boardState
-        if (state.hole.any { it == null }) return
-        viewModelScope.launch {
-            val response = gtoRepository.solve(
-                stage = state.stage(),
-                hole = state.hole.filterNotNull(),
-                board = state.community
-            )
-            response?.let { res ->
-                val bestAction = res.strategy.maxByOrNull { it.value }
-                val text = bestAction?.let { "GTO: ${it.key} (${(it.value * 100).toInt()}%)" }
-                    ?: "GTO mix available."
-                _uiState.update { it.copy(recommendation = text) }
+        val boardState = _uiState.value.boardState
+        val boardCount = boardState.community.count { it != null }
+        if (boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
+
+        gtoJob?.cancel()
+        _uiState.update { it.copy(gtoAdvice = null, gtoStatus = GtoStatus.LOADING) }
+        gtoJob = viewModelScope.launch {
+            try {
+                val response = gtoRepository.solve(
+                    stage = boardState.stage(),
+                    hole = boardState.hole.filterNotNull(),
+                    board = boardState.community
+                )
+                if (_uiState.value.boardState != boardState) return@launch
+                val bestAction = response.strategy.maxByOrNull { it.value }
+                val text = bestAction?.let { "${it.key} ${(it.value * 100).toInt()}%" }
+                    ?: "No action returned."
+                _uiState.update { it.copy(gtoAdvice = text, gtoStatus = GtoStatus.AVAILABLE) }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                if (_uiState.value.boardState == boardState) {
+                    _uiState.update { it.copy(gtoStatus = GtoStatus.UNAVAILABLE) }
+                }
             }
         }
     }

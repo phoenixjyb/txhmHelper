@@ -1,0 +1,16 @@
+[Unit]
+Description=TX Hold'em GTO API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=converge
+WorkingDirectory=/home/converge/data/yanbo/txhmHelper/backend/server
+ExecStart=/home/converge/data/yanbo/txhmHelper/backend/server/start.sh
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
