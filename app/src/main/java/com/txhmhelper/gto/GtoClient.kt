@@ -1,6 +1,7 @@
 package com.txhmhelper.gto
 
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.txhmhelper.BuildConfig
 import okhttp3.OkHttpClient
 import java.net.Proxy
@@ -9,7 +10,9 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 
 object GtoClient {
-    private val moshi: Moshi = Moshi.Builder().build()
+    private val moshi: Moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
 
     private val okHttp = OkHttpClient.Builder()
         // Avoid system HTTP proxies that might block local network calls.
