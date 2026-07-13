@@ -69,10 +69,41 @@ Adjust port mapping or uvicorn args as needed.
   - Body: `{ "stage": "flop|turn|river|preflop", "hole": ["As","Kd"], "board": ["Jh","Td","2c"], "pot": 10.0, "effective_stack": 100.0, "bet_sizing": [0.33, 0.5, 1.0] }`
   - Returns: `{ "strategy": { "check": 0.42, "bet_33": 0.18, "bet_50": 0.40 }, "note": "Strategy from chance-sampled CFR in a heads-up, one-street abstraction (no raises)." }`
 
+### v1 queued heads-up postflop solve
+
+`POST /v1/solve` starts a bounded CFR+ job and returns `202 Accepted`. Poll
+`GET /v1/solve/{job_id}` until `status` is `complete` or `failed`. Identical
+requests reuse the in-memory cached job result.
+
+Example payload:
+```json
+{
+  "stage": "flop",
+  "hole": ["As", "Kd"],
+  "board": ["Jh", "Td", "2c"],
+  "pot": 10.0,
+  "effective_stack": 100.0,
+  "hero_position": "oop",
+  "action_history": [],
+  "villain_range": [{ "cards": ["Qs", "Qd"], "weight": 1.0 }],
+  "bet_sizing": [0.33, 0.5, 1.0],
+  "raise_sizing": [0.75, 1.5],
+  "raise_cap": 1,
+  "rake_pct": 0.05,
+  "rake_cap": 3.0,
+  "iterations": 5000
+}
+```
+
+The Hero must be the next player to act. `hero_position: "ip"` is therefore
+valid only after the out-of-position opponent has acted (for example,
+`action_history: ["check"]`).
+
 ## 5) Solver notes
-- `solver_cfr.py` runs chance-sampled CFR in a heads-up, one-street game. It samples villain hands and runouts to the river, while its information sets contain only the acting player's cards, the known board, and action history.
-- The solver supports the bet sizes supplied in `bet_sizing`, but deliberately has no raises, range editor, or post-action street transitions. It should be described as a GTO approximation for that specific abstraction, not full no-limit Hold'em GTO.
-- Run `python -m unittest test_solver_cfr.py` before deployment. Benchmark the iteration count on the 4090 server before exposing longer solves to the app.
+- The compatibility endpoint (`/solve`) runs the original chance-sampled one-street CFR game.
+- `/v1/solve` runs CFR+ in a stronger, still-bounded heads-up postflop game: weighted villain range, IP/OOP, action history, multiple bet sizes, one capped raise, and rake inputs. Unknown runouts are sampled to river; subsequent-street decisions are not yet modeled.
+- The server is CPU-only today. Its health response reports `gpu_accelerated: false`; do not label it GPU accelerated until a CUDA evaluator and benchmarks are deployed.
+- Run `python -m unittest -v test_solver_cfr.py test_solver_v2.py test_api_v1.py` before deployment. Benchmark the iteration count on the 4090 server before exposing longer solves to the app.
 
 ## 6) Client config
 - Android app base URL is `http://192.168.100.100:10102/` via BuildConfig. Ensure the server is reachable from the device (same network or proper routing).
