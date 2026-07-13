@@ -9,6 +9,8 @@ import com.txhmhelper.model.TargetSlot
 import com.txhmhelper.odds.OddsCalculator
 import com.txhmhelper.odds.OddsResult
 import com.txhmhelper.odds.Precision
+import com.txhmhelper.odds.EquityCalculator
+import com.txhmhelper.odds.EquityResult
 import com.txhmhelper.model.HandType
 import com.txhmhelper.gto.GtoRepository
 import kotlinx.coroutines.CancellationException
@@ -23,6 +25,8 @@ data class HandOddsUiState(
     val boardState: BoardState = BoardState(),
     val targetSlot: TargetSlot = TargetSlot.Hole(0),
     val odds: OddsResult? = null,
+    val equity: EquityResult? = null,
+    val activePlayers: Int = 2,
     val isComputing: Boolean = false,
     val precision: Precision = Precision.FAST,
     val recommendation: String? = null,
@@ -35,6 +39,7 @@ enum class GtoStatus { IDLE, LOADING, AVAILABLE, UNAVAILABLE }
 
 class HandOddsViewModel(
     private val calculator: OddsCalculator = OddsCalculator(),
+    private val equityCalculator: EquityCalculator = EquityCalculator(),
     private val gtoRepository: GtoRepository = GtoRepository()
 ) : ViewModel() {
 
@@ -66,6 +71,7 @@ class HandOddsViewModel(
             it.copy(
                 boardState = updatedBoard,
                 targetSlot = nextTarget,
+                equity = null,
                 gtoAdvice = null,
                 gtoStatus = GtoStatus.IDLE,
                 error = null
@@ -75,6 +81,7 @@ class HandOddsViewModel(
     }
 
     fun clearSlot(slot: TargetSlot) {
+        computeJob?.cancel()
         gtoJob?.cancel()
         val updatedBoard = when (slot) {
             is TargetSlot.Hole -> _uiState.value.boardState.copy(
@@ -91,6 +98,7 @@ class HandOddsViewModel(
                 odds = if (updatedBoard.hole.any { card -> card == null }) null
                 else if (updatedBoard.stage() == Stage.PREFLOP) null
                 else it.odds,
+                equity = null,
                 gtoAdvice = null,
                 gtoStatus = GtoStatus.IDLE
             )
@@ -110,6 +118,21 @@ class HandOddsViewModel(
         scheduleCompute()
     }
 
+    fun setActivePlayers(players: Int) {
+        require(players in 2..9)
+        if (_uiState.value.activePlayers == players) return
+        gtoJob?.cancel()
+        _uiState.update {
+            it.copy(
+                activePlayers = players,
+                equity = null,
+                gtoAdvice = null,
+                gtoStatus = GtoStatus.IDLE
+            )
+        }
+        scheduleCompute()
+    }
+
     private fun scheduleCompute() {
         val current = _uiState.value
         if (current.boardState.hole.any { it == null }) return
@@ -117,12 +140,24 @@ class HandOddsViewModel(
         computeJob?.cancel()
         computeJob = viewModelScope.launch {
             delay(180)
+            val snapshot = _uiState.value
             _uiState.update { it.copy(isComputing = true, error = null) }
-            val budget = if (_uiState.value.precision == Precision.FAST) 250L else 800L
-            val result = calculator.compute(_uiState.value.boardState, _uiState.value.precision, budget)
-            val reco = recommendationFor(result, _uiState.value.boardState.stage())
-            _uiState.update { it.copy(isComputing = false, odds = result, recommendation = reco) }
-            fetchGtoAdvice()
+            val budget = if (snapshot.precision == Precision.FAST) 250L else 800L
+            val result = calculator.compute(snapshot.boardState, snapshot.precision, budget)
+            val equity = equityCalculator.compute(
+                state = snapshot.boardState,
+                players = snapshot.activePlayers,
+                maxSamples = if (snapshot.precision == Precision.FAST) 30_000 else 120_000,
+                timeBudgetMs = budget
+            )
+            if (_uiState.value.boardState != snapshot.boardState ||
+                _uiState.value.activePlayers != snapshot.activePlayers
+            ) return@launch
+            val reco = recommendationFor(result, snapshot.boardState.stage())
+            _uiState.update {
+                it.copy(isComputing = false, odds = result, equity = equity, recommendation = reco)
+            }
+            fetchGtoAdvice(snapshot.boardState, snapshot.activePlayers)
         }
     }
 
@@ -170,10 +205,9 @@ class HandOddsViewModel(
         }
     }
 
-    private fun fetchGtoAdvice() {
-        val boardState = _uiState.value.boardState
+    private fun fetchGtoAdvice(boardState: BoardState, activePlayers: Int) {
         val boardCount = boardState.community.count { it != null }
-        if (boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
+        if (activePlayers != 2 || boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
 
         gtoJob?.cancel()
         _uiState.update { it.copy(gtoAdvice = null, gtoStatus = GtoStatus.LOADING) }
@@ -184,7 +218,7 @@ class HandOddsViewModel(
                     hole = boardState.hole.filterNotNull(),
                     board = boardState.community
                 )
-                if (_uiState.value.boardState != boardState) return@launch
+                if (_uiState.value.boardState != boardState || _uiState.value.activePlayers != activePlayers) return@launch
                 val bestAction = response.strategy.maxByOrNull { it.value }
                 val text = bestAction?.let { "${it.key} ${(it.value * 100).toInt()}%" }
                     ?: "No action returned."
@@ -192,7 +226,7 @@ class HandOddsViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
-                if (_uiState.value.boardState == boardState) {
+                if (_uiState.value.boardState == boardState && _uiState.value.activePlayers == activePlayers) {
                     _uiState.update { it.copy(gtoStatus = GtoStatus.UNAVAILABLE) }
                 }
             }

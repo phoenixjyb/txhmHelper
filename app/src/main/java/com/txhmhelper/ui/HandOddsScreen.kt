@@ -1,5 +1,6 @@
 package com.txhmhelper.ui
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.txhmhelper.model.Card
@@ -35,6 +38,7 @@ import com.txhmhelper.model.Rank
 import com.txhmhelper.model.Suit
 import com.txhmhelper.model.TargetSlot
 import com.txhmhelper.odds.HandProb
+import com.txhmhelper.odds.EquityResult
 import com.txhmhelper.odds.OddsMode
 import com.txhmhelper.odds.Precision
 
@@ -42,6 +46,7 @@ import com.txhmhelper.odds.Precision
 fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var pendingSuit by remember { mutableStateOf<Suit?>(null) }
     var pendingRank by remember { mutableStateOf<Rank?>(null) }
 
@@ -64,33 +69,14 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-        ) {
-            OddsPanel(
-                odds = uiState.odds?.handProbs ?: emptyList(),
-                mode = uiState.odds?.mode,
-                isComputing = uiState.isComputing,
-                precision = uiState.precision,
-                samples = uiState.odds?.samples ?: 0,
-                recommendation = uiState.recommendation,
-                gtoStatus = uiState.gtoStatus,
-                gtoAdvice = uiState.gtoAdvice,
-                onPrecisionChange = viewModel::setPrecision
-            )
-
-            CardBoard(
-                hole = uiState.boardState.hole,
-                community = uiState.boardState.community,
-                target = uiState.targetSlot,
+        if (isLandscape) {
+            LandscapeDashboard(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                state = uiState,
+                onPrecisionChange = viewModel::setPrecision,
+                onPlayersChange = viewModel::setActivePlayers,
                 onSlotSelected = viewModel::selectSlot,
-                onClear = viewModel::clearSlot
-            )
-
-            CardPicker(
+                onClear = viewModel::clearSlot,
                 pendingSuit = pendingSuit,
                 pendingRank = pendingRank,
                 onSuitSelected = { pendingSuit = it },
@@ -98,23 +84,124 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 onResetPicker = {
                     pendingSuit = null
                     pendingRank = null
-                },
-                usedCards = uiState.boardState.usedCards()
+                }
+            )
+        } else {
+            PortraitDashboard(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                state = uiState,
+                onPrecisionChange = viewModel::setPrecision,
+                onPlayersChange = viewModel::setActivePlayers,
+                onSlotSelected = viewModel::selectSlot,
+                onClear = viewModel::clearSlot,
+                pendingSuit = pendingSuit,
+                pendingRank = pendingRank,
+                onSuitSelected = { pendingSuit = it },
+                onRankSelected = { pendingRank = it },
+                onResetPicker = {
+                    pendingSuit = null
+                    pendingRank = null
+                }
             )
         }
     }
 }
 
 @Composable
+private fun PortraitDashboard(
+    modifier: Modifier,
+    state: HandOddsUiState,
+    onPrecisionChange: (Precision) -> Unit,
+    onPlayersChange: (Int) -> Unit,
+    onSlotSelected: (TargetSlot) -> Unit,
+    onClear: (TargetSlot) -> Unit,
+    pendingSuit: Suit?,
+    pendingRank: Rank?,
+    onSuitSelected: (Suit) -> Unit,
+    onRankSelected: (Rank) -> Unit,
+    onResetPicker: () -> Unit
+) {
+    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
+        OddsPanel(state, onPrecisionChange)
+        GameContextPanel(state.activePlayers, state.equity, state.isComputing, onPlayersChange)
+        CardBoard(
+            hole = state.boardState.hole,
+            community = state.boardState.community,
+            target = state.targetSlot,
+            onSlotSelected = onSlotSelected,
+            onClear = onClear
+        )
+        CardPicker(
+            pendingSuit = pendingSuit,
+            pendingRank = pendingRank,
+            onSuitSelected = onSuitSelected,
+            onRankSelected = onRankSelected,
+            onResetPicker = onResetPicker,
+            usedCards = state.boardState.usedCards()
+        )
+    }
+}
+
+@Composable
+private fun LandscapeDashboard(
+    modifier: Modifier,
+    state: HandOddsUiState,
+    onPrecisionChange: (Precision) -> Unit,
+    onPlayersChange: (Int) -> Unit,
+    onSlotSelected: (TargetSlot) -> Unit,
+    onClear: (TargetSlot) -> Unit,
+    pendingSuit: Suit?,
+    pendingRank: Rank?,
+    onSuitSelected: (Suit) -> Unit,
+    onRankSelected: (Rank) -> Unit,
+    onResetPicker: () -> Unit
+) {
+    Column(modifier = modifier) {
+        Row(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(0.34f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                OddsPanel(state, onPrecisionChange)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(0.42f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                CardBoard(
+                    hole = state.boardState.hole,
+                    community = state.boardState.community,
+                    target = state.targetSlot,
+                    onSlotSelected = onSlotSelected,
+                    onClear = onClear,
+                    cardHeight = 68.dp
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(0.24f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                GameContextPanel(state.activePlayers, state.equity, state.isComputing, onPlayersChange)
+            }
+        }
+        CardPicker(
+            pendingSuit = pendingSuit,
+            pendingRank = pendingRank,
+            onSuitSelected = onSuitSelected,
+            onRankSelected = onRankSelected,
+            onResetPicker = onResetPicker,
+            usedCards = state.boardState.usedCards(),
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+    }
+}
+
+@Composable
 private fun OddsPanel(
-    odds: List<HandProb>,
-    mode: OddsMode?,
-    isComputing: Boolean,
-    precision: Precision,
-    samples: Int,
-    recommendation: String?,
-    gtoStatus: GtoStatus,
-    gtoAdvice: String?,
+    state: HandOddsUiState,
     onPrecisionChange: (Precision) -> Unit
 ) {
     ElevatedCard(
@@ -123,42 +210,50 @@ private fun OddsPanel(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Hand odds",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            mode?.let {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = if (it == OddsMode.MONTE_CARLO) "Monte Carlo" else "Exact",
-                    style = MaterialTheme.typography.labelMedium
+                    text = "Hand odds",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
+                state.odds?.mode?.let {
+                    Text(
+                        text = if (it == OddsMode.MONTE_CARLO) "Monte Carlo" else "Exact",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
                 AssistChip(
                     onClick = { onPrecisionChange(Precision.FAST) },
                     label = { Text("Fast") },
                     colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (precision == Precision.FAST) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent
+                        containerColor = if (state.precision == Precision.FAST) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent
                     )
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 AssistChip(
                     onClick = { onPrecisionChange(Precision.HIGH) },
                     label = { Text("High") },
                     colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (precision == Precision.HIGH) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent
+                        containerColor = if (state.precision == Precision.HIGH) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent
                     )
                 )
             }
         }
-        recommendation?.let { reco ->
+        state.recommendation?.let { reco ->
             Text(
                 text = "Suggested line: $reco",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -166,14 +261,14 @@ private fun OddsPanel(
                 color = MaterialTheme.colorScheme.primary
             )
         }
-        when (gtoStatus) {
+        when (state.gtoStatus) {
             GtoStatus.LOADING -> Text(
                 text = "GTO: calculating...",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.labelMedium
             )
             GtoStatus.AVAILABLE -> Text(
-                text = "GTO: $gtoAdvice",
+                text = "GTO: ${state.gtoAdvice}",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.tertiary
@@ -186,13 +281,13 @@ private fun OddsPanel(
             )
             GtoStatus.IDLE -> Unit
         }
-        if (isComputing) {
+        if (state.isComputing) {
             Text(
                 text = "Estimating...",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodyMedium
             )
-        } else if (odds.isEmpty()) {
+        } else if (state.odds?.handProbs.isNullOrEmpty()) {
             Text(
                 text = "Pick your hole cards to see odds.",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -200,7 +295,7 @@ private fun OddsPanel(
             )
         } else {
             Text(
-                text = "Samples: $samples",
+                text = "Samples: ${state.odds?.samples ?: 0}",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall
             )
@@ -210,8 +305,8 @@ private fun OddsPanel(
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
         ) {
-            odds.forEach { item ->
-                OddsRow(item, mode)
+            state.odds?.handProbs?.forEach { item ->
+                OddsRow(item, state.odds.mode)
             }
         }
     }
@@ -250,15 +345,84 @@ private fun OddsRow(prob: HandProb, mode: OddsMode?) {
 }
 
 @Composable
+private fun GameContextPanel(
+    activePlayers: Int,
+    equity: EquityResult?,
+    isComputing: Boolean,
+    onPlayersChange: (Int) -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Table context", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Players in hand", style = MaterialTheme.typography.labelMedium)
+            PlayerCountRow((2..5).toList(), activePlayers, onPlayersChange)
+            PlayerCountRow((6..9).toList(), activePlayers, onPlayersChange)
+
+            when {
+                isComputing -> Text("Equity: calculating...", style = MaterialTheme.typography.bodyMedium)
+                equity != null -> {
+                    Text(
+                        text = "Equity: ${(equity.equity * 100).formatOneDecimal()}%",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Win ${(equity.winProbability * 100).formatOneDecimal()}%  Tie ${(equity.tieProbability * 100).formatOneDecimal()}%",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = "${equity.samples} Monte Carlo hands vs ${activePlayers - 1} random opponent${if (activePlayers == 2) "" else "s"}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                else -> Text("Select both hole cards for win equity.", style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Text(
+                text = if (activePlayers == 2) "GTO: heads-up model available" else "GTO: heads-up only; multiway shows equity",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (activePlayers == 2) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun PlayerCountRow(
+    players: List<Int>,
+    activePlayers: Int,
+    onPlayersChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        players.forEach { playersInHand ->
+            FilterChip(
+                selected = activePlayers == playersInHand,
+                onClick = { onPlayersChange(playersInHand) },
+                label = { Text(playersInHand.toString()) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
 private fun CardBoard(
     hole: List<Card?>,
     community: List<Card?>,
     target: TargetSlot,
     onSlotSelected: (TargetSlot) -> Unit,
-    onClear: (TargetSlot) -> Unit
+    onClear: (TargetSlot) -> Unit,
+    cardHeight: Dp = 90.dp
 ) {
-    val cardHeight = 90.dp
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -361,10 +525,11 @@ private fun CardPicker(
     onSuitSelected: (Suit) -> Unit,
     onRankSelected: (Rank) -> Unit,
     onResetPicker: () -> Unit,
-    usedCards: Set<Card>
+    usedCards: Set<Card>,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(16.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
