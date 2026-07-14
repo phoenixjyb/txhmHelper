@@ -3,6 +3,11 @@ import unittest
 
 from solver_v2 import HeadsUpPostflopCfr, WeightedCombo
 
+try:
+    import torch
+except ImportError:
+    torch = None
+
 
 class HeadsUpPostflopCfrTest(unittest.TestCase):
     def setUp(self):
@@ -67,6 +72,29 @@ class HeadsUpPostflopCfrTest(unittest.TestCase):
                 villain_range=None,
                 iterations=100,
             )
+
+    @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA PyTorch is not installed")
+    def test_batched_cuda_terminal_payoffs_match_cpu_reference(self):
+        arguments = dict(
+            hero_hand=["As", "Kd"],
+            public_board=["Jh", "Td", "2c", "7h"],
+            hero_position="oop",
+            action_history=[],
+            villain_range=None,
+            iterations=160,
+        )
+        cpu_result = HeadsUpPostflopCfr(
+            pot=10.0, effective_stack=100.0, bet_sizes=[0.33, 0.5, 1.0], raise_sizes=[0.75, 1.5]
+        ).solve(**arguments, rng=random.Random(20260714))
+        gpu_result = HeadsUpPostflopCfr(
+            pot=10.0, effective_stack=100.0, bet_sizes=[0.33, 0.5, 1.0], raise_sizes=[0.75, 1.5]
+        ).solve(**arguments, rng=random.Random(20260714), use_gpu_terminal_evaluator=True)
+
+        self.assertEqual("cpu_reference", cpu_result.terminal_evaluator)
+        self.assertEqual("cuda_batched", gpu_result.terminal_evaluator)
+        self.assertEqual(cpu_result.node_count, gpu_result.node_count)
+        for action, cpu_probability in cpu_result.strategy.items():
+            self.assertAlmostEqual(cpu_probability, gpu_result.strategy[action], places=10)
 
 
 if __name__ == "__main__":

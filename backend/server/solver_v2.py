@@ -66,6 +66,7 @@ class SolverResult:
     iterations: int
     node_count: int
     model: str = "heads-up-postflop-cfr-plus-v1"
+    terminal_evaluator: str = "cpu_reference"
 
 
 class HeadsUpPostflopCfr:
@@ -97,6 +98,7 @@ class HeadsUpPostflopCfr:
         villain_range: Sequence[WeightedCombo] | None,
         iterations: int,
         rng: random.Random | None = None,
+        use_gpu_terminal_evaluator: bool = False,
     ) -> SolverResult:
         hero = parse_cards(hero_hand)
         board = parse_cards(public_board)
@@ -123,22 +125,33 @@ class HeadsUpPostflopCfr:
         remaining = [card for card in deck if card not in set(hero) | set(board)]
         range_combos = self._prepare_range(villain_range, set(hero) | set(board))
 
+        samples: List[Tuple[List[CardValue], List[CardValue]]] = []
         for _ in range(iterations):
             villain = self._sample_villain(remaining, range_combos, generator)
             runout_pool = [card for card in remaining if card not in villain]
             final_board = list(board) + generator.sample(runout_pool, 5 - len(board))
+            samples.append((villain, final_board))
+
+        outcomes = self._terminal_outcomes(hero, samples, use_gpu_terminal_evaluator)
+        for (villain, final_board), outcome in zip(samples, outcomes):
             self._cfr(
                 hero=hero,
                 villain=villain,
                 public_board=board,
                 final_board=final_board,
+                showdown_outcome=outcome,
                 state=initial,
                 hero_reach=1.0,
                 villain_reach=1.0,
             )
 
         root = self.nodes[self._info_key(0, hero, board, initial)]
-        return SolverResult(root.average_strategy(), iterations, len(self.nodes))
+        return SolverResult(
+            root.average_strategy(),
+            iterations,
+            len(self.nodes),
+            terminal_evaluator="cuda_batched" if use_gpu_terminal_evaluator else "cpu_reference",
+        )
 
     def _cfr(
         self,
@@ -146,11 +159,12 @@ class HeadsUpPostflopCfr:
         villain: Sequence[CardValue],
         public_board: Sequence[CardValue],
         final_board: Sequence[CardValue],
+        showdown_outcome: int,
         state: ActionState,
         hero_reach: float,
         villain_reach: float,
     ) -> float:
-        utility = self._terminal_utility(state, hero, villain, final_board)
+        utility = self._terminal_utility(state, showdown_outcome)
         if utility is not None:
             return utility
 
@@ -166,9 +180,9 @@ class HeadsUpPostflopCfr:
         for action in actions:
             child = self._apply(state, action)
             if player == 0:
-                value = self._cfr(hero, villain, public_board, final_board, child, hero_reach * strategy[action], villain_reach)
+                value = self._cfr(hero, villain, public_board, final_board, showdown_outcome, child, hero_reach * strategy[action], villain_reach)
             else:
-                value = self._cfr(hero, villain, public_board, final_board, child, hero_reach, villain_reach * strategy[action])
+                value = self._cfr(hero, villain, public_board, final_board, showdown_outcome, child, hero_reach, villain_reach * strategy[action])
             action_utilities[action] = value
             node_utility += strategy[action] * value
 
@@ -238,9 +252,7 @@ class HeadsUpPostflopCfr:
     def _terminal_utility(
         self,
         state: ActionState,
-        hero: Sequence[CardValue],
-        villain: Sequence[CardValue],
-        final_board: Sequence[CardValue],
+        outcome: int,
     ) -> float | None:
         if not self._is_terminal(state.history):
             return None
@@ -250,7 +262,6 @@ class HeadsUpPostflopCfr:
                 return -(self.pot / 2.0 + state.contributions[0])
             return self.pot / 2.0 + state.contributions[1]
 
-        outcome = winner(hero, villain, final_board)
         if outcome == 0:
             return 0.0
         total_pot = self.pot + sum(state.contributions)
@@ -258,6 +269,35 @@ class HeadsUpPostflopCfr:
         if outcome > 0:
             return self.pot / 2.0 + state.contributions[1] - rake / 2.0
         return -(self.pot / 2.0 + state.contributions[0] - rake / 2.0)
+
+    @staticmethod
+    def _terminal_outcomes(
+        hero: Sequence[CardValue],
+        samples: Sequence[Tuple[Sequence[CardValue], Sequence[CardValue]]],
+        use_gpu_terminal_evaluator: bool,
+    ) -> List[int]:
+        if not use_gpu_terminal_evaluator:
+            return [winner(hero, villain, final_board) for villain, final_board in samples]
+
+        from hunl.gpu import probe_gpu
+        from hunl.torch_evaluator import showdown_equity
+
+        status = probe_gpu()
+        if not status.available:
+            raise RuntimeError(f"CUDA terminal evaluator requested but unavailable: {status.reason}")
+        import torch
+
+        def cards_tensor(hole_cards: Sequence[CardValue], board: Sequence[CardValue]):
+            return [[rank + 2, suit] for rank, suit in list(hole_cards) + list(board)]
+
+        hero_cards = torch.tensor(
+            [cards_tensor(hero, board) for _, board in samples], device="cuda", dtype=torch.long
+        )
+        villain_cards = torch.tensor(
+            [cards_tensor(villain, board) for villain, board in samples], device="cuda", dtype=torch.long
+        )
+        equities = showdown_equity(hero_cards, villain_cards).cpu().tolist()
+        return [1 if equity == 1.0 else -1 if equity == 0.0 else 0 for equity in equities]
 
     @staticmethod
     def _is_terminal(history: History) -> bool:
