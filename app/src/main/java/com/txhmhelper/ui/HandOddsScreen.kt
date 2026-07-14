@@ -79,16 +79,6 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(pendingSuit, pendingRank) {
-        val suit = pendingSuit
-        val rank = pendingRank
-        if (suit != null && rank != null) {
-            viewModel.onCardChosen(Card(rank, suit))
-            pendingSuit = null
-            pendingRank = null
-        }
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
@@ -108,6 +98,13 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 pendingRank = pendingRank,
                 onSuitSelected = { pendingSuit = it },
                 onRankSelected = { pendingRank = it },
+                onConfirmPicker = {
+                    val suit = pendingSuit ?: return@LandscapeDashboard
+                    val rank = pendingRank ?: return@LandscapeDashboard
+                    viewModel.onCardChosen(Card(rank, suit))
+                    pendingSuit = null
+                    pendingRank = null
+                },
                 onResetPicker = {
                     pendingSuit = null
                     pendingRank = null
@@ -129,6 +126,13 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 pendingRank = pendingRank,
                 onSuitSelected = { pendingSuit = it },
                 onRankSelected = { pendingRank = it },
+                onConfirmPicker = {
+                    val suit = pendingSuit ?: return@PortraitDashboard
+                    val rank = pendingRank ?: return@PortraitDashboard
+                    viewModel.onCardChosen(Card(rank, suit))
+                    pendingSuit = null
+                    pendingRank = null
+                },
                 onResetPicker = {
                     pendingSuit = null
                     pendingRank = null
@@ -154,6 +158,7 @@ private fun PortraitDashboard(
     pendingRank: Rank?,
     onSuitSelected: (Suit) -> Unit,
     onRankSelected: (Rank) -> Unit,
+    onConfirmPicker: () -> Unit,
     onResetPicker: () -> Unit
 ) {
     FullTableDashboard(
@@ -171,6 +176,7 @@ private fun PortraitDashboard(
         pendingRank = pendingRank,
         onSuitSelected = onSuitSelected,
         onRankSelected = onRankSelected,
+        onConfirmPicker = onConfirmPicker,
         onResetPicker = onResetPicker
     )
 }
@@ -191,6 +197,7 @@ private fun LandscapeDashboard(
     pendingRank: Rank?,
     onSuitSelected: (Suit) -> Unit,
     onRankSelected: (Rank) -> Unit,
+    onConfirmPicker: () -> Unit,
     onResetPicker: () -> Unit
 ) {
     FullTableDashboard(
@@ -208,6 +215,8 @@ private fun LandscapeDashboard(
         pendingRank = pendingRank,
         onSuitSelected = onSuitSelected,
         onRankSelected = onRankSelected,
+        onConfirmPicker = onConfirmPicker,
+        isLandscape = true,
         onResetPicker = onResetPicker
     )
 }
@@ -228,7 +237,9 @@ private fun FullTableDashboard(
     pendingRank: Rank?,
     onSuitSelected: (Suit) -> Unit,
     onRankSelected: (Rank) -> Unit,
-    onResetPicker: () -> Unit
+    onConfirmPicker: () -> Unit,
+    onResetPicker: () -> Unit,
+    isLandscape: Boolean = false
 ) {
     var showOdds by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
@@ -282,9 +293,10 @@ private fun FullTableDashboard(
                 usedCards = state.boardState.usedCards(),
                 onSuitSelected = onSuitSelected,
                 onRankSelected = onRankSelected,
+                onConfirmPicker = onConfirmPicker,
                 onResetPicker = onResetPicker,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(if (isLandscape) Alignment.CenterEnd else Alignment.BottomCenter)
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             )
         }
@@ -1051,6 +1063,7 @@ private fun DialCardPicker(
     usedCards: Set<Card>,
     onSuitSelected: (Suit) -> Unit,
     onRankSelected: (Rank) -> Unit,
+    onConfirmPicker: () -> Unit,
     onResetPicker: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1090,6 +1103,19 @@ private fun DialCardPicker(
                 modifier = Modifier.size(172.dp)
             )
             Text("Outer ring: rank  •  Inner ring: suit", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
+            Button(
+                onClick = onConfirmPicker,
+                enabled = pendingSuit != null && pendingRank != null,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PokerGold,
+                    contentColor = Color(0xFF182A25),
+                    disabledContainerColor = PokerGold.copy(alpha = 0.28f),
+                    disabledContentColor = Color.White.copy(alpha = 0.48f)
+                )
+            ) {
+                Text("Confirm card", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
