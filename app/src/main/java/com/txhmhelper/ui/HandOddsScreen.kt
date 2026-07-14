@@ -29,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1105,6 +1106,13 @@ private fun PokerCardDial(
     var dialSize by remember { mutableStateOf(IntSize.Zero) }
     var outerAngle by remember { mutableStateOf(rankAngle((selectedRank ?: Rank.A).ordinal)) }
     var innerAngle by remember { mutableStateOf(suitAngle((selectedSuit ?: Suit.SPADES).ordinal)) }
+    var lastRankIndex by remember { mutableStateOf((selectedRank ?: Rank.A).ordinal) }
+    var lastSuitIndex by remember { mutableStateOf((selectedSuit ?: Suit.SPADES).ordinal) }
+    val currentSuit by rememberUpdatedState(selectedSuit)
+    val currentRank by rememberUpdatedState(selectedRank)
+    val currentUsedCards by rememberUpdatedState(usedCards)
+    val currentOnRankSelected by rememberUpdatedState(onRankSelected)
+    val currentOnSuitSelected by rememberUpdatedState(onSuitSelected)
     fun angleAt(pointX: Float, pointY: Float): Double {
         if (dialSize.width == 0 || dialSize.height == 0) return 0.0
         val centerX = dialSize.width / 2f
@@ -1128,21 +1136,27 @@ private fun PokerCardDial(
                 outerAngle = angle
                 val index = (angle / (PI * 2 / Rank.entries.size)).roundToInt() % Rank.entries.size
                 val rank = Rank.entries[index]
-                val unavailable = selectedSuit?.let { suit -> usedCards.any { it.rank == rank && it.suit == suit } } == true
-                if (!unavailable) onRankSelected(rank)
+                if (index != lastRankIndex) {
+                    lastRankIndex = index
+                    val unavailable = currentSuit?.let { suit -> currentUsedCards.any { it.rank == rank && it.suit == suit } } == true
+                    if (!unavailable) currentOnRankSelected(rank)
+                }
             }
             DialRing.INNER -> {
                 innerAngle = angle
                 val index = (angle / (PI * 2 / Suit.entries.size)).roundToInt() % Suit.entries.size
                 val suit = Suit.entries[index]
-                val unavailable = selectedRank?.let { rank -> usedCards.any { it.rank == rank && it.suit == suit } } == true
-                if (!unavailable) onSuitSelected(suit)
+                if (index != lastSuitIndex) {
+                    lastSuitIndex = index
+                    val unavailable = currentRank?.let { rank -> currentUsedCards.any { it.rank == rank && it.suit == suit } } == true
+                    if (!unavailable) currentOnSuitSelected(suit)
+                }
             }
         }
     }
     Canvas(
         modifier = modifier
-            .pointerInput(selectedRank, selectedSuit, usedCards, dialSize) {
+            .pointerInput(dialSize) {
                 var activeRing: DialRing? = null
                 detectDragGestures(
                     onDragStart = { offset ->
