@@ -34,16 +34,38 @@ routing work at a small scale. It is also clear evidence that 125 iterations
 is **not converged**. These artifacts are research diagnostics only and must
 not be exposed as GTO recommendations.
 
-## Next implementation gate
+## Held-out comparison harness and run protocol
 
-Before any long production-style run:
+`server/validate_gate_b_abstraction.py` now runs fresh exact and bucketed Gate B
+trainers against the same chance samples for every case/seed pair. It writes a
+versioned JSON report containing per-action root-policy error, root total
+variation, node counts, and summaries stratified by board texture and
+private-hand bucket. The fixed manifest is intentionally outside the original
+pilot spot.
 
-1. Add a held-out exact-combo comparison harness against the validated Gate A
-   turn/river path, stratified by flop texture and hand/draw bucket.
-2. Define a convergence protocol: independent seeds, fixed checkpoint cadence,
-   policy-delta thresholds, artifact-size/runtime limits, and stop rules.
-3. Run larger bucketed pilots only after that harness reports their abstraction
-   error, then decide whether to expand the action model or train more deeply.
+The bounded acceptance, stop, and promotion rules live in
+[`HUNL_GATE_B_CONVERGENCE_PROTOCOL.md`](HUNL_GATE_B_CONVERGENCE_PROTOCOL.md).
+They are practical stability checks for this abstraction, not a claim of formal
+exploitability or full-game GTO.
+
+First server validation command:
+
+```bash
+cd /home/converge/data/yanbo/txhmHelper/backend/server
+.venv/bin/python validate_gate_b_abstraction.py \
+  --iterations 25 --seeds 20260716,20260717,20260718 \
+  --cuda-terminal-evaluator \
+  --output ../artifacts/gate-b-heldout-20260714.json
+```
+
+## Next research gate
+
+1. Run the held-out report with at least three seeds and inspect the error
+   strata against the protocol thresholds.
+2. If the abstraction gate is acceptable, run larger checkpointed pilots using
+   the fixed run contract and evaluate within- and cross-seed stability.
+3. If it is not acceptable, refine bucket features or the action model before
+   increasing training depth.
 
 Gate B remains offline research infrastructure. The deployed `/v1/solve`
 endpoint remains the bounded one-street CFR+ service; it does not read these

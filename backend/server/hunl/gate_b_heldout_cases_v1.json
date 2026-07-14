@@ -1,0 +1,33 @@
+{
+  "manifest_version": "gate_b_heldout_cases_v1",
+  "cases": [
+    {
+      "case_id": "dry_broadway",
+      "hero_hand": ["As", "Kd"],
+      "flop_board": ["Jc", "7d", "3s"],
+      "pot_bb": 10.0,
+      "stack_bb": 90.0
+    },
+    {
+      "case_id": "wet_connected",
+      "hero_hand": ["Qh", "9h"],
+      "flop_board": ["Js", "8h", "4h"],
+      "pot_bb": 10.0,
+      "stack_bb": 90.0
+    },
+    {
+      "case_id": "paired_trips",
+      "hero_hand": ["Ac", "7c"],
+      "flop_board": ["7d", "7h", "2s"],
+      "pot_bb": 10.0,
+      "stack_bb": 90.0
+    },
+    {
+      "case_id": "monotone_high",
+      "hero_hand": ["As", "Kd"],
+      "flop_board": ["Qh", "8h", "3h"],
+      "pot_bb": 10.0,
+      "stack_bb": 90.0
+    }
+  ]
+}
