@@ -33,7 +33,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.txhmhelper.model.Card
+import com.txhmhelper.model.GameSession
 import com.txhmhelper.model.HandType
+import com.txhmhelper.model.PlayerActionType
 import com.txhmhelper.model.Rank
 import com.txhmhelper.model.Suit
 import com.txhmhelper.model.TargetSlot
@@ -75,6 +77,9 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 state = uiState,
                 onPrecisionChange = viewModel::setPrecision,
                 onPlayersChange = viewModel::setActivePlayers,
+                onActionPlayerSelected = viewModel::selectActionPlayer,
+                onRecordAction = viewModel::recordPlayerAction,
+                onAdvanceStreet = viewModel::advanceActionStreet,
                 onSlotSelected = viewModel::selectSlot,
                 onClear = viewModel::clearSlot,
                 pendingSuit = pendingSuit,
@@ -92,6 +97,9 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 state = uiState,
                 onPrecisionChange = viewModel::setPrecision,
                 onPlayersChange = viewModel::setActivePlayers,
+                onActionPlayerSelected = viewModel::selectActionPlayer,
+                onRecordAction = viewModel::recordPlayerAction,
+                onAdvanceStreet = viewModel::advanceActionStreet,
                 onSlotSelected = viewModel::selectSlot,
                 onClear = viewModel::clearSlot,
                 pendingSuit = pendingSuit,
@@ -113,6 +121,9 @@ private fun PortraitDashboard(
     state: HandOddsUiState,
     onPrecisionChange: (Precision) -> Unit,
     onPlayersChange: (Int) -> Unit,
+    onActionPlayerSelected: (Int) -> Unit,
+    onRecordAction: (PlayerActionType, Double?) -> Unit,
+    onAdvanceStreet: () -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
     pendingSuit: Suit?,
@@ -123,7 +134,15 @@ private fun PortraitDashboard(
 ) {
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
         OddsPanel(state, onPrecisionChange)
-        GameContextPanel(state.activePlayers, state.equity, state.isComputing, onPlayersChange)
+        GameContextPanel(
+            session = state.gameSession,
+            equity = state.equity,
+            isComputing = state.isComputing,
+            onPlayersChange = onPlayersChange,
+            onActionPlayerSelected = onActionPlayerSelected,
+            onRecordAction = onRecordAction,
+            onAdvanceStreet = onAdvanceStreet
+        )
         CardBoard(
             hole = state.boardState.hole,
             community = state.boardState.community,
@@ -148,6 +167,9 @@ private fun LandscapeDashboard(
     state: HandOddsUiState,
     onPrecisionChange: (Precision) -> Unit,
     onPlayersChange: (Int) -> Unit,
+    onActionPlayerSelected: (Int) -> Unit,
+    onRecordAction: (PlayerActionType, Double?) -> Unit,
+    onAdvanceStreet: () -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
     pendingSuit: Suit?,
@@ -184,7 +206,15 @@ private fun LandscapeDashboard(
                     .weight(0.24f)
                     .verticalScroll(rememberScrollState())
             ) {
-                GameContextPanel(state.activePlayers, state.equity, state.isComputing, onPlayersChange)
+                GameContextPanel(
+                    session = state.gameSession,
+                    equity = state.equity,
+                    isComputing = state.isComputing,
+                    onPlayersChange = onPlayersChange,
+                    onActionPlayerSelected = onActionPlayerSelected,
+                    onRecordAction = onRecordAction,
+                    onAdvanceStreet = onAdvanceStreet
+                )
             }
         }
         CardPicker(
@@ -344,13 +374,21 @@ private fun OddsRow(prob: HandProb, mode: OddsMode?) {
     }
 }
 
+private fun Double.formatBb(): String =
+    if (this % 1.0 == 0.0) "${toInt()}bb" else "${"%.1f".format(this)}bb"
+
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun GameContextPanel(
-    activePlayers: Int,
+    session: GameSession,
     equity: EquityResult?,
     isComputing: Boolean,
-    onPlayersChange: (Int) -> Unit
+    onPlayersChange: (Int) -> Unit,
+    onActionPlayerSelected: (Int) -> Unit,
+    onRecordAction: (PlayerActionType, Double?) -> Unit,
+    onAdvanceStreet: () -> Unit
 ) {
+    var showActionDialog by remember { mutableStateOf(false) }
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,9 +397,58 @@ private fun GameContextPanel(
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Table context", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Players in hand", style = MaterialTheme.typography.labelMedium)
-            PlayerCountRow((2..5).toList(), activePlayers, onPlayersChange)
-            PlayerCountRow((6..9).toList(), activePlayers, onPlayersChange)
+            Text("Start game — players at table", style = MaterialTheme.typography.labelMedium)
+            PlayerCountRow((2..5).toList(), session.players.size, onPlayersChange)
+            PlayerCountRow((6..9).toList(), session.players.size, onPlayersChange)
+            Text(
+                text = "${session.street.label}  •  Pot ${session.potBb.formatBb()}  •  To call ${session.toCallBb.formatBb()}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "${session.playersInHand}/${session.players.size} players remain",
+                style = MaterialTheme.typography.labelSmall
+            )
+
+            Text("Tap a player, then record an action", style = MaterialTheme.typography.labelMedium)
+            session.players.forEach { player ->
+                FilterChip(
+                    selected = player.id == session.selectedPlayerId,
+                    enabled = player.isInHand,
+                    onClick = { onActionPlayerSelected(player.id) },
+                    label = {
+                        Text(
+                            "${player.name}: ${player.stackBb.formatBb()}  •  street ${player.streetCommittedBb.formatBb()}" +
+                                if (player.isInHand) "" else "  •  folded"
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { showActionDialog = true },
+                    enabled = session.selectedPlayer != null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("${session.selectedPlayer?.name ?: "Player"} action")
+                }
+                OutlinedButton(
+                    onClick = onAdvanceStreet,
+                    enabled = session.street.next() != null && session.playersInHand >= 2,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Next street")
+                }
+            }
+            if (session.actions.isEmpty()) {
+                Text("Actions update pot and remaining stacks automatically.", style = MaterialTheme.typography.labelSmall)
+            } else {
+                Text("Action timeline", style = MaterialTheme.typography.labelMedium)
+                session.actions.takeLast(5).forEach { action ->
+                    Text("${action.street.label}: ${action.display()}  •  pot ${action.potAfterBb.formatBb()}", style = MaterialTheme.typography.labelSmall)
+                }
+            }
 
             when {
                 isComputing -> Text("Equity: calculating...", style = MaterialTheme.typography.bodyMedium)
@@ -376,20 +463,87 @@ private fun GameContextPanel(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
-                        text = "${equity.samples} Monte Carlo hands vs ${activePlayers - 1} random opponent${if (activePlayers == 2) "" else "s"}",
+                        text = "${equity.samples} Monte Carlo hands vs ${session.playersInHand - 1} random opponent${if (session.playersInHand == 2) "" else "s"}",
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
+                session.players.firstOrNull()?.isInHand == false -> Text("Hero folded; equity stopped.", style = MaterialTheme.typography.bodyMedium)
                 else -> Text("Select both hole cards for win equity.", style = MaterialTheme.typography.bodyMedium)
             }
 
             Text(
-                text = if (activePlayers == 2) "GTO: heads-up model available" else "GTO: heads-up only; multiway shows equity",
+                text = when {
+                    session.playersInHand != 2 -> "GTO: heads-up only; multiway shows equity and action tracking"
+                    session.actions.isNotEmpty() -> "GTO: action timeline recorded; exact amount-aware solver wiring is next"
+                    else -> "GTO: heads-up model available"
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (activePlayers == 2) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
+                color = if (session.playersInHand == 2 && session.actions.isEmpty()) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }
+    if (showActionDialog) {
+        ActionEntryDialog(
+            playerName = session.selectedPlayer?.name ?: "Player",
+            toCallBb = session.selectedPlayer?.let { (session.toCallBb - it.streetCommittedBb).coerceAtLeast(0.0) } ?: 0.0,
+            onDismiss = { showActionDialog = false },
+            onConfirm = { type, amount ->
+                onRecordAction(type, amount)
+                showActionDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun ActionEntryDialog(
+    playerName: String,
+    toCallBb: Double,
+    onDismiss: () -> Unit,
+    onConfirm: (PlayerActionType, Double?) -> Unit
+) {
+    var actionType by remember { mutableStateOf(if (toCallBb > 0.0) PlayerActionType.CALL else PlayerActionType.CHECK) }
+    var amountText by remember { mutableStateOf("") }
+    val needsAmount = actionType == PlayerActionType.BET || actionType == PlayerActionType.RAISE
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${playerName}'s decision") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (toCallBb > 0.0) "To call: ${toCallBb.formatBb()}" else "No bet to call")
+                PlayerActionType.entries.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        row.forEach { type ->
+                            FilterChip(
+                                selected = actionType == type,
+                                onClick = { actionType = type },
+                                label = { Text(type.label) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                if (needsAmount) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("Total commitment this street (BB)") },
+                        supportingText = { Text("Enter the amount the player raises or bets to, not the increment.") },
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(actionType, if (needsAmount) amountText.toDoubleOrNull() else null)
+                }
+            ) { Text("Record") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

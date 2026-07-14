@@ -12,6 +12,8 @@ import com.txhmhelper.odds.Precision
 import com.txhmhelper.odds.EquityCalculator
 import com.txhmhelper.odds.EquityResult
 import com.txhmhelper.model.HandType
+import com.txhmhelper.model.GameSession
+import com.txhmhelper.model.PlayerActionType
 import com.txhmhelper.gto.GtoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -26,7 +28,7 @@ data class HandOddsUiState(
     val targetSlot: TargetSlot = TargetSlot.Hole(0),
     val odds: OddsResult? = null,
     val equity: EquityResult? = null,
-    val activePlayers: Int = 2,
+    val gameSession: GameSession = GameSession.create(2),
     val isComputing: Boolean = false,
     val precision: Precision = Precision.FAST,
     val recommendation: String? = null,
@@ -120,15 +122,61 @@ class HandOddsViewModel(
 
     fun setActivePlayers(players: Int) {
         require(players in 2..9)
-        if (_uiState.value.activePlayers == players) return
+        if (_uiState.value.gameSession.players.size == players) return
         gtoJob?.cancel()
         _uiState.update {
             it.copy(
-                activePlayers = players,
+                gameSession = GameSession.create(players),
                 equity = null,
                 gtoAdvice = null,
                 gtoStatus = GtoStatus.IDLE
             )
+        }
+        scheduleCompute()
+    }
+
+    fun selectActionPlayer(playerId: Int) {
+        _uiState.update { state ->
+            try {
+                state.copy(gameSession = state.gameSession.selectPlayer(playerId), error = null)
+            } catch (exception: IllegalArgumentException) {
+                state.copy(error = exception.message)
+            }
+        }
+    }
+
+    fun recordPlayerAction(type: PlayerActionType, amountToBb: Double? = null) {
+        gtoJob?.cancel()
+        _uiState.update { state ->
+            try {
+                state.copy(
+                    gameSession = state.gameSession.recordAction(type, amountToBb),
+                    equity = null,
+                    gtoAdvice = null,
+                    gtoStatus = GtoStatus.IDLE,
+                    error = null
+                )
+            } catch (exception: IllegalArgumentException) {
+                state.copy(error = exception.message)
+            }
+        }
+        scheduleCompute()
+    }
+
+    fun advanceActionStreet() {
+        gtoJob?.cancel()
+        _uiState.update { state ->
+            try {
+                state.copy(
+                    gameSession = state.gameSession.advanceStreet(),
+                    equity = null,
+                    gtoAdvice = null,
+                    gtoStatus = GtoStatus.IDLE,
+                    error = null
+                )
+            } catch (exception: IllegalArgumentException) {
+                state.copy(error = exception.message)
+            }
         }
         scheduleCompute()
     }
@@ -144,20 +192,24 @@ class HandOddsViewModel(
             _uiState.update { it.copy(isComputing = true, error = null) }
             val budget = if (snapshot.precision == Precision.FAST) 250L else 800L
             val result = calculator.compute(snapshot.boardState, snapshot.precision, budget)
-            val equity = equityCalculator.compute(
-                state = snapshot.boardState,
-                players = snapshot.activePlayers,
-                maxSamples = if (snapshot.precision == Precision.FAST) 30_000 else 120_000,
-                timeBudgetMs = budget
-            )
+            val heroInHand = snapshot.gameSession.players.firstOrNull()?.isInHand == true
+            val playersInHand = snapshot.gameSession.playersInHand
+            val equity = if (heroInHand && playersInHand >= 2) {
+                equityCalculator.compute(
+                    state = snapshot.boardState,
+                    players = playersInHand,
+                    maxSamples = if (snapshot.precision == Precision.FAST) 30_000 else 120_000,
+                    timeBudgetMs = budget
+                )
+            } else null
             if (_uiState.value.boardState != snapshot.boardState ||
-                _uiState.value.activePlayers != snapshot.activePlayers
+                _uiState.value.gameSession != snapshot.gameSession
             ) return@launch
             val reco = recommendationFor(result, snapshot.boardState.stage())
             _uiState.update {
                 it.copy(isComputing = false, odds = result, equity = equity, recommendation = reco)
             }
-            fetchGtoAdvice(snapshot.boardState, snapshot.activePlayers)
+            fetchGtoAdvice(snapshot.boardState, snapshot.gameSession)
         }
     }
 
@@ -205,9 +257,9 @@ class HandOddsViewModel(
         }
     }
 
-    private fun fetchGtoAdvice(boardState: BoardState, activePlayers: Int) {
+    private fun fetchGtoAdvice(boardState: BoardState, session: GameSession) {
         val boardCount = boardState.community.count { it != null }
-        if (activePlayers != 2 || boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
+        if (session.playersInHand != 2 || session.actions.isNotEmpty() || boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
 
         gtoJob?.cancel()
         _uiState.update { it.copy(gtoAdvice = null, gtoStatus = GtoStatus.LOADING) }
@@ -218,7 +270,7 @@ class HandOddsViewModel(
                     hole = boardState.hole.filterNotNull(),
                     board = boardState.community
                 )
-                if (_uiState.value.boardState != boardState || _uiState.value.activePlayers != activePlayers) return@launch
+                if (_uiState.value.boardState != boardState || _uiState.value.gameSession != session) return@launch
                 val bestAction = response.strategy.maxByOrNull { it.value }
                 val text = bestAction?.let { "${it.key} ${(it.value * 100).toInt()}%" }
                     ?: "No action returned."
@@ -226,7 +278,7 @@ class HandOddsViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
-                if (_uiState.value.boardState == boardState && _uiState.value.activePlayers == activePlayers) {
+                if (_uiState.value.boardState == boardState && _uiState.value.gameSession == session) {
                     _uiState.update { it.copy(gtoStatus = GtoStatus.UNAVAILABLE) }
                 }
             }
