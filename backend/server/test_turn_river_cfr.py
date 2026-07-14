@@ -97,8 +97,17 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "flop.json"
             trainer.save_artifact(artifact)
-            restored = FlopTurnRiverCfrPlus.load_artifact(artifact)
+            restored = FlopTurnRiverCfrPlus.load_artifact(artifact, config)
         self.assertEqual(len(trainer.nodes), len(restored.nodes))
+        self.assertEqual(
+            result.strategy,
+            restored.flop_root_strategy(
+                hero_hand=["As", "Kd"],
+                flop_board=["Jh", "Td", "2c"],
+                pot_bb=10.0,
+                stacks_bb=(90.0, 90.0),
+            ),
+        )
 
     @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA PyTorch is not installed")
     def test_gpu_terminal_samples_match_cpu_strategy(self):

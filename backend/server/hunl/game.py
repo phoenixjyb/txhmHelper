@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Tuple
 
+EPSILON = 1e-9
+
 
 class Street(str, Enum):
     PREFLOP = "preflop"
@@ -117,18 +119,18 @@ def legal_actions(state: PublicState, config: GameConfig) -> Tuple[Action, ...]:
     to_call = max(0.0, opponent_commitment - own_commitment)
     stack = state.stacks_bb[player]
 
-    if to_call > 0:
+    if to_call > EPSILON:
         actions = [Action(ActionKind.FOLD)]
         if stack >= to_call:
             actions.append(Action(ActionKind.CALL, opponent_commitment))
         else:
             actions.append(Action(ActionKind.ALL_IN, own_commitment + stack))
-        if state.raise_count < config.max_raises_per_street and stack > to_call:
+        if state.raise_count < config.max_raises_per_street and stack > to_call + EPSILON:
             actions.extend(_sizing_actions(ActionKind.RAISE, state, config.postflop_raise_sizes))
         return _deduplicate(actions)
 
     actions = [Action(ActionKind.CHECK)]
-    if stack > 0:
+    if stack > EPSILON:
         actions.extend(_sizing_actions(ActionKind.BET, state, config.postflop_bet_sizes))
     return _deduplicate(actions)
 
@@ -218,6 +220,13 @@ def advance_street(state: PublicState, next_board_card: str | None) -> PublicSta
         street_committed_bb=(0.0, 0.0),
         first_to_act=state.first_to_act,
         to_act=state.first_to_act,
+        # These fields describe betting within a single street.  Carrying
+        # them forward can make a new street inherit a prior aggressor and
+        # prevent a check-check sequence from completing (especially after
+        # floating-point arithmetic leaves a near-zero stack).
+        aggressor=None,
+        raise_count=0,
+        history=(),
     )
 
 
@@ -230,15 +239,16 @@ def _sizing_actions(kind: ActionKind, state: PublicState, sizes: Tuple[float, ..
     actions: list[Action] = []
     for fraction in sizes:
         target = state.pot_bb * fraction if kind == ActionKind.BET else opponent_commitment + state.pot_bb * fraction
-        target = min(target, all_in_target)
-        if target > own_commitment and (kind == ActionKind.BET or target > opponent_commitment):
-            actions.append(Action(kind, round(target, 6), str(int(round(fraction * 100)))))
+        target = round(min(target, all_in_target), 6)
+        if target > own_commitment + EPSILON and (kind == ActionKind.BET or target > opponent_commitment + EPSILON):
+            actions.append(Action(kind, target, str(int(round(fraction * 100)))))
+    all_in_target = round(all_in_target, 6)
     if (
-        all_in_target > own_commitment
-        and (kind == ActionKind.BET or all_in_target > opponent_commitment)
-        and all(action.target_commitment != round(all_in_target, 6) for action in actions)
+        all_in_target > own_commitment + EPSILON
+        and (kind == ActionKind.BET or all_in_target > opponent_commitment + EPSILON)
+        and all(action.target_commitment != all_in_target for action in actions)
     ):
-        actions.append(Action(ActionKind.ALL_IN, round(all_in_target, 6), "allin"))
+        actions.append(Action(ActionKind.ALL_IN, all_in_target, "allin"))
     return actions
 
 

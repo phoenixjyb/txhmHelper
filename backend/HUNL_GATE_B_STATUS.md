@@ -11,6 +11,10 @@ The RTX 4090 smoke run used the CUDA terminal evaluator and produced nodes on
 all three streets. This verifies public-state transitions and terminal payoff
 routing, not strategic convergence.
 
+The bucketed 20-sample comparison on the server reduced observed information
+sets from 1,496 to 1,008 and wall time from 1.12s to 0.62s. The shared offline
+trainer now accepts `--stage flop` and creates a distinct Gate B artifact.
+
 ## Why a long flop run is not started yet
 
 Gate A exact-combo artifacts reached roughly 150 MB per 5,250-iteration turn

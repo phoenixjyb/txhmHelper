@@ -6,13 +6,19 @@ import json
 import random
 from pathlib import Path
 
-from hunl.turn_river_cfr import TurnRiverCfrPlus, TurnRiverTrainingConfig
+from hunl.turn_river_cfr import (
+    FlopTurnRiverCfrPlus,
+    FlopTurnRiverTrainingConfig,
+    TurnRiverCfrPlus,
+    TurnRiverTrainingConfig,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hero", required=True, help="Two cards, comma-separated; for example As,Kd")
-    parser.add_argument("--board", required=True, help="Four turn cards, comma-separated")
+    parser.add_argument("--stage", choices=("turn", "flop"), default="turn")
+    parser.add_argument("--board", required=True, help="Turn: four cards; flop: three cards, comma-separated")
     parser.add_argument("--pot-bb", type=float, required=True)
     parser.add_argument("--stack-bb", type=float, default=100.0, help="Effective remaining stack for both players")
     parser.add_argument("--iterations", type=int, required=True)
@@ -24,39 +30,54 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20260714)
     arguments = parser.parse_args()
 
-    config = TurnRiverTrainingConfig(use_gpu_terminal_evaluator=arguments.cuda_terminal_evaluator)
+    config = (
+        FlopTurnRiverTrainingConfig(use_gpu_terminal_evaluator=arguments.cuda_terminal_evaluator)
+        if arguments.stage == "flop"
+        else TurnRiverTrainingConfig(use_gpu_terminal_evaluator=arguments.cuda_terminal_evaluator)
+    )
     if arguments.resume:
-        trainer = TurnRiverCfrPlus.load_artifact(arguments.artifact, config)
+        trainer = (FlopTurnRiverCfrPlus if arguments.stage == "flop" else TurnRiverCfrPlus).load_artifact(
+            arguments.artifact, config
+        )
     else:
-        trainer = TurnRiverCfrPlus(config)
-    hero, board = _cards(arguments.hero, 2), _cards(arguments.board, 4)
+        trainer = FlopTurnRiverCfrPlus(config) if arguments.stage == "flop" else TurnRiverCfrPlus(config)
+    hero, board = _cards(arguments.hero, 2), _cards(arguments.board, 3 if arguments.stage == "flop" else 4)
     generator = random.Random(arguments.seed)
     interval = arguments.checkpoint_interval or arguments.iterations
     if interval < 1:
         raise ValueError("checkpoint_interval must be positive.")
     previous_strategy = (
-        trainer.root_strategy(hero, board, arguments.pot_bb, (arguments.stack_bb, arguments.stack_bb))
+        (
+            trainer.flop_root_strategy(hero, board, arguments.pot_bb, (arguments.stack_bb, arguments.stack_bb))
+            if arguments.stage == "flop"
+            else trainer.root_strategy(hero, board, arguments.pot_bb, (arguments.stack_bb, arguments.stack_bb))
+        )
         if arguments.resume
         else None
     )
     remaining = arguments.iterations
     while remaining > 0:
         step = min(interval, remaining)
-        result = trainer.train(
+        training_arguments = dict(
             hero_hand=hero,
-            turn_board=board,
             pot_bb=arguments.pot_bb,
             stacks_bb=(arguments.stack_bb, arguments.stack_bb),
             hero_position="oop",
             iterations=step,
             rng=generator,
         )
+        result = (
+            trainer.train_flop(flop_board=board, **training_arguments)
+            if arguments.stage == "flop"
+            else trainer.train(turn_board=board, **training_arguments)
+        )
         delta = _max_policy_delta(previous_strategy, result.strategy) if previous_strategy else None
         trainer.save_artifact(
             arguments.artifact,
             metadata={
                 "hero": hero,
-                "turn_board": board,
+                f"{arguments.stage}_board": board,
+                "stage": arguments.stage,
                 "pot_bb": arguments.pot_bb,
                 "stack_bb": arguments.stack_bb,
                 "seed": arguments.seed,
