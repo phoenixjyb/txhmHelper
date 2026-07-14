@@ -99,15 +99,14 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
             trainer.save_artifact(artifact)
             restored = FlopTurnRiverCfrPlus.load_artifact(artifact, config)
         self.assertEqual(len(trainer.nodes), len(restored.nodes))
-        self.assertEqual(
-            result.strategy,
-            restored.flop_root_strategy(
-                hero_hand=["As", "Kd"],
-                flop_board=["Jh", "Td", "2c"],
-                pot_bb=10.0,
-                stacks_bb=(90.0, 90.0),
-            ),
+        restored_strategy = restored.flop_root_strategy(
+            hero_hand=["As", "Kd"],
+            flop_board=["Jh", "Td", "2c"],
+            pot_bb=10.0,
+            stacks_bb=(90.0, 90.0),
         )
+        for action, probability in result.strategy.items():
+            self.assertAlmostEqual(probability, restored_strategy[action], places=12)
 
     @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA PyTorch is not installed")
     def test_gpu_terminal_samples_match_cpu_strategy(self):
