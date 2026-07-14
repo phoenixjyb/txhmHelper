@@ -1,7 +1,11 @@
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
+import os
+from pathlib import Path
 from threading import RLock
+import time
 import traceback
 from typing import Dict, List, Literal, Optional
 from uuid import uuid4
@@ -14,7 +18,12 @@ from solver_v2 import HeadsUpPostflopCfr, WeightedCombo
 from hunl.gpu import probe_gpu
 from table_context import TableAction, normalize_table_context
 
-app = FastAPI(title="TX Hold'em GTO API", version="0.4.0")
+app = FastAPI(title="TX Hold'em GTO API", version="0.5.0")
+
+RESULT_CACHE_LIMIT = max(1, int(os.getenv("TXHM_RESULT_CACHE_LIMIT", "512")))
+JOB_TTL_SECONDS = max(60, int(os.getenv("TXHM_JOB_TTL_SECONDS", "3600")))
+RESULT_CACHE_PATH = Path(os.getenv("TXHM_RESULT_CACHE_PATH", "runtime/solve_result_cache.json"))
+SOLVER_WORKERS = max(1, int(os.getenv("TXHM_SOLVER_WORKERS", "1")))
 
 
 class SolvePayload(BaseModel):
@@ -98,7 +107,7 @@ class V1SolveResult(BaseModel):
 
 class SolveJobResponse(BaseModel):
     job_id: str
-    status: Literal["queued", "running", "complete", "failed"]
+    status: Literal["queued", "running", "complete", "failed", "cancelled"]
     cache_hit: bool = False
     result: Optional[V1SolveResult] = None
     error: Optional[str] = None
@@ -106,15 +115,115 @@ class SolveJobResponse(BaseModel):
 
 @dataclass
 class SolveJob:
-    status: Literal["queued", "running", "complete", "failed"]
+    status: Literal["queued", "running", "complete", "failed", "cancelled"]
     result: Optional[V1SolveResult] = None
     error: Optional[str] = None
+    cache_key: Optional[str] = None
+    created_at: float = field(default_factory=time.monotonic)
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    cancel_requested: bool = False
+
+
+@dataclass
+class RuntimeMetrics:
+    submitted: int = 0
+    in_flight_cache_hits: int = 0
+    result_cache_hits: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    total_solve_seconds: float = 0.0
 
 
 jobs: Dict[str, SolveJob] = {}
 cache: Dict[str, str] = {}
+result_cache: OrderedDict[str, V1SolveResult] = OrderedDict()
+metrics = RuntimeMetrics()
 jobs_lock = RLock()
-solver_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="txhm-cfr")
+solver_executor = ThreadPoolExecutor(max_workers=SOLVER_WORKERS, thread_name_prefix="txhm-cfr")
+
+
+def _load_result_cache() -> None:
+    """Restore completed solves so restarts do not discard useful work."""
+    try:
+        payload = json.loads(RESULT_CACHE_PATH.read_text(encoding="utf-8"))
+        entries = payload.get("entries", [])
+        for entry in entries[-RESULT_CACHE_LIMIT:]:
+            result_cache[entry["key"]] = V1SolveResult.model_validate(entry["result"])
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"Ignoring unreadable solve-result cache: {exc}")
+
+
+def _persist_result_cache_locked() -> None:
+    """Write the LRU atomically; an unwritable cache must not break solving."""
+    try:
+        RESULT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = RESULT_CACHE_PATH.with_suffix(RESULT_CACHE_PATH.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {"key": key, "result": result.model_dump(mode="json")}
+                        for key, result in result_cache.items()
+                    ],
+                },
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(RESULT_CACHE_PATH)
+    except OSError as exc:
+        print(f"Could not persist solve-result cache: {exc}")
+
+
+def _store_result_locked(cache_key: str, result: V1SolveResult) -> None:
+    result_cache[cache_key] = result
+    result_cache.move_to_end(cache_key)
+    while len(result_cache) > RESULT_CACHE_LIMIT:
+        result_cache.popitem(last=False)
+    _persist_result_cache_locked()
+
+
+def _prune_expired_jobs_locked() -> None:
+    now = time.monotonic()
+    expired_job_ids = [
+        job_id
+        for job_id, job in jobs.items()
+        if job.status in ("complete", "failed", "cancelled")
+        and job.completed_at is not None
+        and now - job.completed_at > JOB_TTL_SECONDS
+    ]
+    for job_id in expired_job_ids:
+        job = jobs.pop(job_id)
+        if job.cache_key and cache.get(job.cache_key) == job_id:
+            cache.pop(job.cache_key, None)
+
+
+def _metrics_snapshot_locked() -> Dict[str, float | int]:
+    queued = sum(job.status == "queued" for job in jobs.values())
+    running = sum(job.status == "running" for job in jobs.values())
+    average_solve_seconds = metrics.total_solve_seconds / metrics.completed if metrics.completed else 0.0
+    return {
+        "solver_workers": SOLVER_WORKERS,
+        "queue_depth": queued,
+        "running_jobs": running,
+        "tracked_jobs": len(jobs),
+        "result_cache_entries": len(result_cache),
+        "submitted": metrics.submitted,
+        "in_flight_cache_hits": metrics.in_flight_cache_hits,
+        "result_cache_hits": metrics.result_cache_hits,
+        "completed": metrics.completed,
+        "failed": metrics.failed,
+        "cancelled": metrics.cancelled,
+        "average_solve_seconds": round(average_solve_seconds, 4),
+    }
+
+
+_load_result_cache()
 
 
 @app.get("/health")
@@ -122,11 +231,18 @@ def health():
     gpu = probe_gpu()
     return {
         "status": "ok",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "solver": "heads-up-postflop-cfr-plus-v1",
         "gpu_terminal_evaluator_available": gpu.available,
         "gpu_device": gpu.device_name,
     }
+
+
+@app.get("/v1/metrics")
+def get_metrics():
+    with jobs_lock:
+        _prune_expired_jobs_locked()
+        return _metrics_snapshot_locked()
 
 
 @app.post("/solve", response_model=SolveResponse)
@@ -196,13 +312,33 @@ def create_table_solve(payload: TableSolvePayload):
 def _enqueue_v1_solve(payload: V1SolvePayload) -> SolveJobResponse:
     cache_key = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     with jobs_lock:
+        _prune_expired_jobs_locked()
         existing_job_id = cache.get(cache_key)
         if existing_job_id:
+            metrics.in_flight_cache_hits += 1
             return _job_response(existing_job_id, cache_hit=True)
 
+        cached_result = result_cache.get(cache_key)
+        if cached_result is not None:
+            result_cache.move_to_end(cache_key)
+            metrics.result_cache_hits += 1
+            job_id = str(uuid4())
+            now = time.monotonic()
+            jobs[job_id] = SolveJob(
+                status="complete",
+                result=cached_result,
+                cache_key=cache_key,
+                created_at=now,
+                started_at=now,
+                completed_at=now,
+            )
+            cache[cache_key] = job_id
+            return _job_response(job_id, cache_hit=True)
+
         job_id = str(uuid4())
-        jobs[job_id] = SolveJob(status="queued")
+        jobs[job_id] = SolveJob(status="queued", cache_key=cache_key)
         cache[cache_key] = job_id
+        metrics.submitted += 1
         solver_executor.submit(_run_v1_solve, job_id, payload)
         return _job_response(job_id)
 
@@ -212,6 +348,24 @@ def get_v1_solve(job_id: str):
     with jobs_lock:
         if job_id not in jobs:
             raise HTTPException(status_code=404, detail="Unknown solve job.")
+        return _job_response(job_id)
+
+
+@app.delete("/v1/solve/{job_id}", response_model=SolveJobResponse)
+def cancel_v1_solve(job_id: str):
+    """Stop queued work or suppress a running result that is no longer useful."""
+    with jobs_lock:
+        if job_id not in jobs:
+            raise HTTPException(status_code=404, detail="Unknown solve job.")
+        job = jobs[job_id]
+        if job.status in ("complete", "failed", "cancelled"):
+            return _job_response(job_id)
+        job.cancel_requested = True
+        job.status = "cancelled"
+        job.completed_at = time.monotonic()
+        if job.cache_key and cache.get(job.cache_key) == job_id:
+            cache.pop(job.cache_key, None)
+        metrics.cancelled += 1
         return _job_response(job_id)
 
 
@@ -226,7 +380,11 @@ def _validate_v1_payload(payload: V1SolvePayload) -> None:
 
 def _run_v1_solve(job_id: str, payload: V1SolvePayload) -> None:
     with jobs_lock:
-        jobs[job_id].status = "running"
+        job = jobs.get(job_id)
+        if job is None or job.cancel_requested:
+            return
+        job.status = "running"
+        job.started_at = time.monotonic()
     try:
         weighted_range = (
             [WeightedCombo(tuple(entry.cards), entry.weight) for entry in payload.villain_range]
@@ -266,11 +424,30 @@ def _run_v1_solve(job_id: str, payload: V1SolvePayload) -> None:
             ),
         )
         with jobs_lock:
-            jobs[job_id] = SolveJob(status="complete", result=result)
+            job = jobs.get(job_id)
+            if job is None or job.cancel_requested:
+                return
+            completed_at = time.monotonic()
+            job.status = "complete"
+            job.result = result
+            job.completed_at = completed_at
+            metrics.completed += 1
+            if job.started_at is not None:
+                metrics.total_solve_seconds += completed_at - job.started_at
+            if job.cache_key:
+                _store_result_locked(job.cache_key, result)
     except Exception as exc:
         traceback.print_exc()
         with jobs_lock:
-            jobs[job_id] = SolveJob(status="failed", error=str(exc))
+            job = jobs.get(job_id)
+            if job is None or job.cancel_requested:
+                return
+            job.status = "failed"
+            job.error = str(exc)
+            job.completed_at = time.monotonic()
+            metrics.failed += 1
+            if job.cache_key and cache.get(job.cache_key) == job_id:
+                cache.pop(job.cache_key, None)
 
 
 def _job_response(job_id: str, cache_hit: bool = False) -> SolveJobResponse:

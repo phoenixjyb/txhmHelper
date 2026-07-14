@@ -9,3 +9,4 @@ app/build/
 **/.venv/
 **/__pycache__/
 backend/artifacts/
+backend/server/runtime/
