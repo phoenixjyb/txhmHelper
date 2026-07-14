@@ -1103,31 +1103,57 @@ private fun PokerCardDial(
     modifier: Modifier = Modifier
 ) {
     var dialSize by remember { mutableStateOf(IntSize.Zero) }
-    fun selectAt(pointX: Float, pointY: Float) {
-        if (dialSize.width == 0 || dialSize.height == 0) return
+    var outerAngle by remember { mutableStateOf(rankAngle((selectedRank ?: Rank.A).ordinal)) }
+    var innerAngle by remember { mutableStateOf(suitAngle((selectedSuit ?: Suit.SPADES).ordinal)) }
+    fun angleAt(pointX: Float, pointY: Float): Double {
+        if (dialSize.width == 0 || dialSize.height == 0) return 0.0
         val centerX = dialSize.width / 2f
         val centerY = dialSize.height / 2f
-        val radius = hypot(pointX - centerX, pointY - centerY)
+        return (atan2((pointY - centerY).toDouble(), (pointX - centerX).toDouble()) + PI / 2 + PI * 2) % (PI * 2)
+    }
+    fun ringAt(pointX: Float, pointY: Float): DialRing? {
+        if (dialSize.width == 0 || dialSize.height == 0) return null
+        val radius = hypot(pointX - dialSize.width / 2f, pointY - dialSize.height / 2f)
         val outerRadius = min(dialSize.width, dialSize.height) / 2f
-        val angle = (atan2((pointY - centerY).toDouble(), (pointX - centerX).toDouble()) + PI / 2 + PI * 2) % (PI * 2)
-        if (radius >= outerRadius * 0.57f) {
-            val index = (angle / (PI * 2 / Rank.entries.size)).roundToInt() % Rank.entries.size
-            val rank = Rank.entries[index]
-            val unavailable = selectedSuit?.let { suit -> usedCards.any { it.rank == rank && it.suit == suit } } == true
-            if (!unavailable) onRankSelected(rank)
-        } else if (radius >= outerRadius * 0.22f) {
-            val index = (angle / (PI * 2 / Suit.entries.size)).roundToInt() % Suit.entries.size
-            val suit = Suit.entries[index]
-            val unavailable = selectedRank?.let { rank -> usedCards.any { it.rank == rank && it.suit == suit } } == true
-            if (!unavailable) onSuitSelected(suit)
+        return when {
+            radius >= outerRadius * 0.57f -> DialRing.OUTER
+            radius >= outerRadius * 0.22f -> DialRing.INNER
+            else -> null
+        }
+    }
+    fun updateRing(ring: DialRing, pointX: Float, pointY: Float) {
+        val angle = angleAt(pointX, pointY)
+        when (ring) {
+            DialRing.OUTER -> {
+                outerAngle = angle
+                val index = (angle / (PI * 2 / Rank.entries.size)).roundToInt() % Rank.entries.size
+                val rank = Rank.entries[index]
+                val unavailable = selectedSuit?.let { suit -> usedCards.any { it.rank == rank && it.suit == suit } } == true
+                if (!unavailable) onRankSelected(rank)
+            }
+            DialRing.INNER -> {
+                innerAngle = angle
+                val index = (angle / (PI * 2 / Suit.entries.size)).roundToInt() % Suit.entries.size
+                val suit = Suit.entries[index]
+                val unavailable = selectedRank?.let { rank -> usedCards.any { it.rank == rank && it.suit == suit } } == true
+                if (!unavailable) onSuitSelected(suit)
+            }
         }
     }
     Canvas(
         modifier = modifier
             .pointerInput(selectedRank, selectedSuit, usedCards, dialSize) {
+                var activeRing: DialRing? = null
                 detectDragGestures(
-                    onDragStart = { offset -> selectAt(offset.x, offset.y) },
-                    onDrag = { change, _ -> selectAt(change.position.x, change.position.y) }
+                    onDragStart = { offset ->
+                        activeRing = ringAt(offset.x, offset.y)
+                        activeRing?.let { updateRing(it, offset.x, offset.y) }
+                    },
+                    onDragEnd = { activeRing = null },
+                    onDragCancel = { activeRing = null },
+                    onDrag = { change, _ ->
+                        activeRing?.let { updateRing(it, change.position.x, change.position.y) }
+                    }
                 )
             }
             .onSizeChanged { dialSize = it }
@@ -1135,8 +1161,8 @@ private fun PokerCardDial(
         val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
         val outerRadius = size.minDimension * 0.45f
         val innerRadius = outerRadius * 0.46f
-        val selectedRankIndex = (selectedRank ?: Rank.A).ordinal
-        val selectedSuitIndex = (selectedSuit ?: Suit.SPADES).ordinal
+        val selectedRankIndex = (outerAngle / (PI * 2 / Rank.entries.size)).roundToInt() % Rank.entries.size
+        val selectedSuitIndex = (innerAngle / (PI * 2 / Suit.entries.size)).roundToInt() % Suit.entries.size
         drawCircle(Color(0xFF173B31), outerRadius, center)
         drawCircle(PokerGold.copy(alpha = 0.76f), outerRadius, center, style = androidx.compose.ui.graphics.drawscope.Stroke(2.5f))
         drawCircle(Color(0xFF0D5B3B), innerRadius, center)
@@ -1162,13 +1188,15 @@ private fun PokerCardDial(
             labelPaint.color = if (selected) Color(0xFF15241F).toArgb() else suitColor.toArgb()
             drawContext.canvas.nativeCanvas.drawText(suitSymbol(suit), point.x, point.y - (labelPaint.ascent() + labelPaint.descent()) / 2f, labelPaint)
         }
-        val rankPointer = dialPoint(center, outerRadius * 0.65f, selectedRankIndex, Rank.entries.size)
-        val suitPointer = dialPoint(center, innerRadius * 0.58f, selectedSuitIndex, Suit.entries.size)
+        val rankPointer = dialPointAtAngle(center, outerRadius * 0.65f, outerAngle)
+        val suitPointer = dialPointAtAngle(center, innerRadius * 0.58f, innerAngle)
         drawLine(PokerGold, center, rankPointer, strokeWidth = 4f)
         drawLine(Color.White, center, suitPointer, strokeWidth = 3f)
         drawCircle(PokerGold, 7f, center)
     }
 }
+
+private enum class DialRing { OUTER, INNER }
 
 private fun dialPoint(
     center: androidx.compose.ui.geometry.Offset,
@@ -1182,6 +1210,22 @@ private fun dialPoint(
         y = center.y + sin(angle).toFloat() * radius
     )
 }
+
+private fun dialPointAtAngle(
+    center: androidx.compose.ui.geometry.Offset,
+    radius: Float,
+    angle: Double
+): androidx.compose.ui.geometry.Offset {
+    val canvasAngle = angle - PI / 2
+    return androidx.compose.ui.geometry.Offset(
+        x = center.x + cos(canvasAngle).toFloat() * radius,
+        y = center.y + sin(canvasAngle).toFloat() * radius
+    )
+}
+
+private fun rankAngle(index: Int): Double = index * (PI * 2 / Rank.entries.size)
+
+private fun suitAngle(index: Int): Double = index * (PI * 2 / Suit.entries.size)
 
 @Composable
 private fun RankDial(
