@@ -181,6 +181,26 @@ class TurnRiverCfrPlus:
         temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         temporary.replace(destination)
 
+    def root_strategy(
+        self,
+        hero_hand: Sequence[str],
+        turn_board: Sequence[str],
+        pot_bb: float,
+        stacks_bb: Tuple[float, float],
+        hero_position: str = "oop",
+    ) -> Dict[str, float]:
+        """Read the current average strategy for an already-trained OOP root."""
+        if hero_position != "oop":
+            raise ValueError("Gate A root strategy is currently defined only for an OOP hero.")
+        hero = parse_cards(hero_hand)
+        if len(hero) != 2 or len(turn_board) != 4:
+            raise ValueError("Turn/river root strategy requires two hole cards and four board cards.")
+        state = initial_postflop_state(Street.TURN, turn_board, pot_bb, stacks_bb, first_to_act=0)
+        key = self._info_key(state, hero, legal_actions(state, self.config.game))
+        if key not in self.nodes:
+            raise ValueError("Artifact does not contain the requested root information set.")
+        return self.nodes[key].average_strategy()
+
     @classmethod
     def load_artifact(cls, path: str | Path, config: TurnRiverTrainingConfig | None = None) -> "TurnRiverCfrPlus":
         payload = json.loads(Path(path).read_text(encoding="utf-8"))

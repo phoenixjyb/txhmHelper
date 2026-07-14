@@ -53,6 +53,10 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
             artifact = Path(directory) / "turn-river.json"
             trainer.save_artifact(artifact, metadata={"spot": "unit-test"})
             resumed = TurnRiverCfrPlus.load_artifact(artifact, gate_config())
+            self.assertEqual(
+                trainer.root_strategy(**self.train_arguments()),
+                resumed.root_strategy(**self.train_arguments()),
+            )
             result = resumed.train(**self.train_arguments(), iterations=8, rng=random.Random(12))
 
         self.assertGreaterEqual(result.node_count, before)

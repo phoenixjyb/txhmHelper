@@ -34,7 +34,11 @@ def main() -> None:
     interval = arguments.checkpoint_interval or arguments.iterations
     if interval < 1:
         raise ValueError("checkpoint_interval must be positive.")
-    previous_strategy = None
+    previous_strategy = (
+        trainer.root_strategy(hero, board, arguments.pot_bb, (arguments.stack_bb, arguments.stack_bb))
+        if arguments.resume
+        else None
+    )
     remaining = arguments.iterations
     while remaining > 0:
         step = min(interval, remaining)
