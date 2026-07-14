@@ -91,6 +91,12 @@ The GPU gate is passed only when all of the following are true:
 
 Until then `/health` must report `gpu_accelerated: false`.
 
+For the current server (NVIDIA driver CUDA 12.4), install the optional runtime
+with `pip install -r requirements-gpu-cu124.txt` from `backend/server`. This
+only enables CUDA capability detection and benchmark development; it does not
+make the solver GPU accelerated until the poker evaluator is implemented and
+validated.
+
 ## Non-goals for v1
 
 - Six-max or multiway GTO.
