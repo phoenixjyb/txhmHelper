@@ -17,7 +17,11 @@ def canonical_board(board: Iterable[str]) -> str:
     suit_map: dict[str, str] = {}
     canonical = []
     for card in ordered:
-        suit_map.setdefault(card[1], SUIT_SYMBOLS[len(suit_map)])
+        # Do not use setdefault here: its default expression is evaluated even
+        # for an existing suit, which fails on a five-card board containing all
+        # four suits followed by a duplicate suit.
+        if card[1] not in suit_map:
+            suit_map[card[1]] = SUIT_SYMBOLS[len(suit_map)]
         canonical.append(f"{card[0]}{suit_map[card[1]]}")
     return "".join(canonical)
 

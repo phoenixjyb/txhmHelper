@@ -12,6 +12,12 @@ class HunlPublicStateTest(unittest.TestCase):
     def test_suit_isomorphic_boards_share_a_canonical_key(self):
         self.assertEqual(canonical_board(["As", "Kd", "7h"]), canonical_board(["Ah", "Kc", "7s"]))
 
+    def test_five_card_board_with_four_suits_and_a_duplicate_is_canonicalized(self):
+        self.assertEqual(
+            canonical_board(["As", "Kd", "7h", "2c", "Jh"]),
+            canonical_board(["Ah", "Kc", "7s", "2d", "Js"]),
+        )
+
     def test_check_through_turn_advances_to_river(self):
         state = initial_postflop_state(
             street=Street.TURN,
