@@ -86,6 +86,7 @@ class TurnRiverTrainingConfig:
 class TurnRiverResult:
     strategy: Dict[str, float]
     iterations: int
+    total_iterations: int
     node_count: int
     root_key: str
     artifact_version: str
@@ -98,6 +99,7 @@ class TurnRiverCfrPlus:
     def __init__(self, config: TurnRiverTrainingConfig | None = None) -> None:
         self.config = config or TurnRiverTrainingConfig()
         self.nodes: Dict[str, CfrPlusNode] = {}
+        self.total_iterations = 0
 
     def train(
         self,
@@ -149,11 +151,13 @@ class TurnRiverCfrPlus:
                 hero_reach=1.0,
                 villain_reach=1.0,
             )
+        self.total_iterations += iterations
 
         root_key = self._info_key(root, hero, legal_actions(root, self.config.game))
         return TurnRiverResult(
             strategy=self.nodes[root_key].average_strategy(),
             iterations=iterations,
+            total_iterations=self.total_iterations,
             node_count=len(self.nodes),
             root_key=root_key,
             artifact_version=self.config.artifact_version,
@@ -170,6 +174,7 @@ class TurnRiverCfrPlus:
                 "use_gpu_terminal_evaluator": self.config.use_gpu_terminal_evaluator,
             },
             "metadata": metadata or {},
+            "total_iterations": self.total_iterations,
             "nodes": {key: node.to_dict() for key, node in self.nodes.items()},
         }
         temporary = destination.with_suffix(destination.suffix + ".tmp")
@@ -184,6 +189,7 @@ class TurnRiverCfrPlus:
             raise ValueError("Regret artifact version does not match the requested training config.")
         trainer = cls(config)
         trainer.nodes = {key: CfrPlusNode.from_dict(value) for key, value in payload["nodes"].items()}
+        trainer.total_iterations = int(payload.get("total_iterations", 0))
         return trainer
 
     def _cfr(

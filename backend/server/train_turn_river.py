@@ -45,6 +45,7 @@ def main() -> None:
             "stack_bb": arguments.stack_bb,
             "seed": arguments.seed,
             "last_iterations": arguments.iterations,
+            "total_iterations": result.total_iterations,
         },
     )
     print(json.dumps({**result.__dict__, "artifact": str(arguments.artifact)}, sort_keys=True))

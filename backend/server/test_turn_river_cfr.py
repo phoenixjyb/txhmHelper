@@ -56,6 +56,7 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
             result = resumed.train(**self.train_arguments(), iterations=8, rng=random.Random(12))
 
         self.assertGreaterEqual(result.node_count, before)
+        self.assertEqual(16, result.total_iterations)
         self.assertAlmostEqual(1.0, sum(result.strategy.values()), places=8)
 
     @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA PyTorch is not installed")
