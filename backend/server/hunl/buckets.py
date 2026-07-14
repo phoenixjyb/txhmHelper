@@ -37,7 +37,13 @@ def board_texture_bucket(board: Iterable[str]) -> str:
 
 
 def private_hand_bucket(hole_cards: Sequence[str], board: Sequence[str]) -> str:
-    """Bucket exact private cards by current made hand, draw class, and rank relation."""
+    """Bucket private cards by rank pattern, current hand, draw class, and board relation.
+
+    Hole-card ranks remain distinct (``AK`` versus ``Q9``), while suit identity
+    is still abstracted through the draw class. This prevents strategically
+    different unpaired high-card hands from sharing one information set on a
+    dry flop without returning to exact suit-combo information sets.
+    """
     if len(hole_cards) != 2:
         raise ValueError("Private hand buckets require exactly two hole cards.")
     cards = list(hole_cards) + list(board)
@@ -48,7 +54,12 @@ def private_hand_bucket(hole_cards: Sequence[str], board: Sequence[str]) -> str:
     made = MADE_HAND_LABELS[made_rank]
     draw = _draw_bucket(cards, made_rank)
     relation = _hole_relation(hole_cards, board)
-    return f"made={made}|draw={draw}|relation={relation}"
+    return f"ranks={_hole_rank_profile(hole_cards)}|made={made}|draw={draw}|relation={relation}"
+
+
+def _hole_rank_profile(hole_cards: Sequence[str]) -> str:
+    """Return a suit-isomorphic, high-to-low two-card rank label."""
+    return "".join(sorted((card[0] for card in hole_cards), key=RANK_ORDER.index, reverse=True))
 
 
 def _suit_shape(counts: Sequence[int], card_count: int) -> str:

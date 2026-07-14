@@ -91,3 +91,14 @@ Only a run passing all gates can be labelled **stable for the bounded Gate B
 model** in research material. It still remains offline until a separate API
 contract, artifact-selection policy, monitoring, and user-facing limitation
 labels are reviewed. The Android app must not call it "full GTO".
+
+## Revision history
+
+The first held-out series used a private-hand bucket that combined all
+unpaired high-card hands with the same made-hand/draw/relation labels. Its
+completed comparison breached the 15% hard-review limit on the dry-broadway
+stratum (22.59% maximum root-action error). The next series uses artifact
+version `hunl_flop_turn_river_external_sampling_cfr_plus_v2_rank_profile` and
+adds the unordered two-card rank pattern (for example `AK` or `Q9`) to the
+private bucket. It is a new contract: the old v1 artifacts must not be resumed
+or compared with it.

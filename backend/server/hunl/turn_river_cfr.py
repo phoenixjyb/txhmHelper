@@ -21,7 +21,7 @@ from .buckets import private_hand_bucket
 from .game import Action, GameConfig, PublicState, Street, advance_street, apply_action, initial_postflop_state, legal_actions
 
 ARTIFACT_VERSION = "hunl_turn_river_external_sampling_cfr_plus_v1"
-FLOP_TURN_RIVER_ARTIFACT_VERSION = "hunl_flop_turn_river_external_sampling_cfr_plus_v1"
+FLOP_TURN_RIVER_ARTIFACT_VERSION = "hunl_flop_turn_river_external_sampling_cfr_plus_v2_rank_profile"
 
 
 @dataclass

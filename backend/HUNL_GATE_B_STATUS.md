@@ -99,11 +99,31 @@ memory reduction, but the 17.09% matched root-policy gap means the bucketed
 model is **not accepted**. This result passes only the within-seed stability
 prerequisite, not the held-out abstraction or cross-seed gates.
 
-## Next research gate
+## Completed v1 held-out stability series — 2026-07-14
 
-Run paired stability jobs for every held-out case/seed, then compare each
-stable exact artifact against its stable bucketed counterpart. Do not reuse the
-25-iteration held-out diagnostic as an abstraction-quality measurement.
+The RTX 4090 completed all four held-out strata across the three independent
+seeds at the 800-iteration, 25-iteration-checkpoint contract. Every exact and
+bucketed pair passed the within-seed stability prerequisite, so the saved
+artifact roots are valid for the held-out abstraction comparison.
+
+| Held-out stratum | Pairs | Mean max action error | Worst max action error |
+| --- | ---: | ---: | ---: |
+| Paired trips | 3 | 2.82% | 3.46% |
+| Wet connected combo draw | 3 | 4.87% | 5.95% |
+| Monotone high-card | 3 | 8.24% | 9.17% |
+| Dry broadway high-card | 3 | 15.83% | 22.59% |
+
+Across all 12 pairs, the median maximum root-action error was 6.62%, the mean
+was 7.94%, and the worst case was 22.59%. The median misses the 5% research
+target and the dry-broadway case breaches the 15% hard-review stop. Therefore
+the v1 bucketed artifact is **rejected** and remains offline research data.
+
+## Next research gate — v2 rank-profile bucket
+
+The v2 bucket adds the unordered hole-card rank pattern to each private
+information set while preserving suit/draw and board-texture abstraction. It
+has a new artifact version, so the v1 files cannot be resumed or compared with
+v2. Run the same held-out matrix into a new output directory:
 
 The sequential batch runner starts or resumes all four held-out cases across
 three seeds and writes `batch-summary.json` after every job:
@@ -112,7 +132,7 @@ three seeds and writes `batch-summary.json` after every job:
 cd /home/converge/data/yanbo/txhmHelper/backend/server
 .venv/bin/python run_gate_b_heldout_batch.py \
   --seeds 20260716,20260717,20260718 \
-  --output-dir ../artifacts/gate-b-heldout-stability-20260714 \
+  --output-dir ../artifacts/gate-b-v2-rank-profile-20260714 \
   --iterations-per-job 800 --checkpoint-interval 25 \
   --job-timeout-seconds 1800 --max-artifact-mb 2048 \
   --cuda-terminal-evaluator
@@ -123,26 +143,14 @@ As stable pairs arrive, compare them without retraining:
 ```bash
 .venv/bin/python compare_gate_b_stable_artifacts.py \
   --seeds 20260716,20260717,20260718 \
-  --input-dir ../artifacts/gate-b-heldout-stability-20260714 \
-  --output ../artifacts/gate-b-heldout-stability-20260714/stable-comparison.json \
+  --input-dir ../artifacts/gate-b-v2-rank-profile-20260714 \
+  --output ../artifacts/gate-b-v2-rank-profile-20260714/stable-comparison.json \
   --cuda-terminal-evaluator
 ```
 
-The one-spot paired command is:
-
-```bash
-cd /home/converge/data/yanbo/txhmHelper/backend/server
-.venv/bin/python train_gate_b_paired.py \
-  --hero As,Kd --board Jh,Td,2c --pot-bb 10 --stack-bb 90 \
-  --iterations 800 --checkpoint-interval 25 --stop-on-stable \
-  --exact-artifact ../artifacts/gate-b-exact-paired-20260714.json \
-  --bucketed-artifact ../artifacts/gate-b-bucketed-paired-20260714.json \
-  --report ../artifacts/gate-b-paired-20260714.json \
-  --cuda-terminal-evaluator --seed 20260719
-```
-
-Only after stable held-out comparison can we decide whether bucket features
-need refinement or larger bucketed pilots are justified.
+Only after v2 passes the held-out and cross-seed gates can we design the
+artifact-selection API. It will still be a bounded postflop research solver,
+not full-game or multiway GTO.
 
 Gate B remains offline research infrastructure. The deployed `/v1/solve`
 endpoint remains the bounded one-street CFR+ service; it does not read these

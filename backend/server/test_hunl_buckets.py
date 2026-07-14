@@ -19,6 +19,13 @@ class HunlBucketTest(unittest.TestCase):
             private_hand_bucket(["Ah", "Kc"], ["Qh", "7c", "2s"]),
         )
 
+    def test_private_bucket_preserves_hole_rank_pattern(self):
+        board = ["Jc", "7d", "3s"]
+        self.assertNotEqual(
+            private_hand_bucket(["As", "Kd"], board),
+            private_hand_bucket(["Qh", "9c"], board),
+        )
+
     def test_bucketed_flop_abstraction_reduces_observed_information_sets(self):
         game = GameConfig(
             rake_pct=0.0,
