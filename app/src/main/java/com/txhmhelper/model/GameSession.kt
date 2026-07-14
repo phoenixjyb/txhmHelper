@@ -155,23 +155,25 @@ data class GameSession(
             return GameSession(players = createTablePlayers(playerCount, startingStackBb))
         }
 
-        private fun createTablePlayers(playerCount: Int, stackBb: Double = 100.0): List<TablePlayer> =
-            List(playerCount) { index ->
-                TablePlayer(index, pokerNames[index], stackBb)
+        private fun createTablePlayers(playerCount: Int, stackBb: Double = 100.0): List<TablePlayer> {
+            val shuffledNames = animalNames.shuffled()
+            return List(playerCount) { index ->
+                TablePlayer(index, shuffledNames[index], stackBb)
             }
+        }
     }
 }
 
-private val pokerNames = listOf(
-    "Hero",
-    "River",
-    "Nova",
-    "Atlas",
-    "Jade",
-    "Blaze",
-    "Luna",
-    "Maverick",
-    "Sage"
+private val animalNames = listOf(
+    "Aardvark",
+    "Badger",
+    "Cheetah",
+    "Dolphin",
+    "Elephant",
+    "Falcon",
+    "Gecko",
+    "Hedgehog",
+    "Ibex"
 )
 
 private fun requireAmount(amount: Double?, player: TablePlayer, minimumExclusive: Double): Double {

@@ -40,7 +40,7 @@ class GtoRepository(
         require(stage != Stage.PREFLOP) { "The bounded table solver starts postflop." }
         require(hole.size == 2) { "Exactly two hole cards are required." }
         require(session.players.size == 2 && session.playersInHand == 2) { "Table solving is heads-up only." }
-        require(session.selectedPlayerId == 0) { "Select Hero when it is Hero's turn." }
+        require(session.selectedPlayerId == 0) { "Select your seat when it is your turn." }
         require(!session.isCurrentStreetComplete) { "Advance the street after a completed betting line." }
         require(session.potBeforeCurrentStreetBb > 0.0) { "Record the preflop pot before requesting postflop advice." }
 

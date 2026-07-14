@@ -738,7 +738,7 @@ private fun GameContextPanel(
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
-                session.players.firstOrNull()?.isInHand == false -> Text("Hero folded; equity stopped.", style = MaterialTheme.typography.bodyMedium)
+                session.players.firstOrNull()?.isInHand == false -> Text("Your seat folded; equity stopped.", style = MaterialTheme.typography.bodyMedium)
                 else -> Text("Select both hole cards for win equity.", style = MaterialTheme.typography.bodyMedium)
             }
 
@@ -746,7 +746,7 @@ private fun GameContextPanel(
                 text = when {
                     session.players.size != 2 || session.playersInHand != 2 -> "GTO: heads-up only; multiway shows equity and action tracking"
                     session.isCurrentStreetComplete -> "GTO: street complete — advance the street after cards are dealt"
-                    session.selectedPlayerId != 0 -> "GTO: record the opponent's decision; analysis runs on Hero's turn"
+                    session.selectedPlayerId != 0 -> "GTO: record the opponent's decision; analysis runs on your turn"
                     session.potBeforeCurrentStreetBb <= 0.0 -> "GTO: record the preflop pot before postflop analysis"
                     else -> "GTO: heads-up CFR+ uses this street's exact pot, stack, and action amounts"
                 },
@@ -1058,7 +1058,6 @@ private fun PlayerAvatar(
     player: com.txhmhelper.model.TablePlayer,
     selected: Boolean
 ) {
-    val avatars = listOf("🦊", "🐼", "🐯", "🐸", "🦄", "🐙", "🐧", "🐨", "🦁")
     val avatarColors = listOf(
         Color(0xFFFFB4A2), Color(0xFFBDE0FE), Color(0xFFFFD166),
         Color(0xFFB7E4C7), Color(0xFFE7C6FF), Color(0xFFA9DEF9),
@@ -1072,12 +1071,25 @@ private fun PlayerAvatar(
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
-                text = avatars[player.id % avatars.size],
+                text = animalEmoji(player.name),
                 style = MaterialTheme.typography.titleSmall,
                 color = if (player.isInHand) Color.Unspecified else Color.White.copy(alpha = 0.55f)
             )
         }
     }
+}
+
+private fun animalEmoji(name: String): String = when (name) {
+    "Aardvark" -> "🦔"
+    "Badger" -> "🦡"
+    "Cheetah" -> "🐆"
+    "Dolphin" -> "🐬"
+    "Elephant" -> "🐘"
+    "Falcon" -> "🦅"
+    "Gecko" -> "🦎"
+    "Hedgehog" -> "🦔"
+    "Ibex" -> "🐐"
+    else -> "🐾"
 }
 
 @Composable

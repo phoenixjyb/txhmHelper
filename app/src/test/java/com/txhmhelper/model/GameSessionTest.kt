@@ -8,12 +8,12 @@ import org.junit.Test
 class GameSessionTest {
 
     @Test
-    fun createBuildsRequestedTableWithHeroFirst() {
+    fun createBuildsRequestedTableWithUniqueAnimalNames() {
         val session = GameSession.create(6)
 
         assertEquals(6, session.players.size)
-        assertEquals("Hero", session.players.first().name)
-        assertEquals("Blaze", session.players.last().name)
+        assertEquals(6, session.players.map { it.name }.toSet().size)
+        assertTrue(session.players.all { it.name.isNotBlank() })
         assertEquals(100.0, session.players.first().stackBb, 0.0)
     }
 
