@@ -105,6 +105,19 @@ Run paired stability jobs for every held-out case/seed, then compare each
 stable exact artifact against its stable bucketed counterpart. Do not reuse the
 25-iteration held-out diagnostic as an abstraction-quality measurement.
 
+The sequential batch runner starts or resumes all four held-out cases across
+three seeds and writes `batch-summary.json` after every job:
+
+```bash
+cd /home/converge/data/yanbo/txhmHelper/backend/server
+.venv/bin/python run_gate_b_heldout_batch.py \
+  --seeds 20260716,20260717,20260718 \
+  --output-dir ../artifacts/gate-b-heldout-stability-20260714 \
+  --iterations-per-job 800 --checkpoint-interval 25 \
+  --job-timeout-seconds 1800 --max-artifact-mb 2048 \
+  --cuda-terminal-evaluator
+```
+
 The one-spot paired command is:
 
 ```bash
