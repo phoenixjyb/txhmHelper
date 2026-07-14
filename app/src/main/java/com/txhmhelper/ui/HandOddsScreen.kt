@@ -269,8 +269,8 @@ private fun FullTableDashboard(
 
         Row(
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 10.dp),
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             OverlayToggle("Odds", showOdds) { showOdds = !showOdds }
