@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -60,6 +61,7 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -256,6 +258,16 @@ private fun FullTableDashboard(
             modifier = Modifier.fillMaxSize()
         )
 
+        if (!showOdds && !showActions) {
+            TableTurnHud(
+                session = state.gameSession,
+                equity = state.equity,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 18.dp, top = if (isLandscape) 16.dp else 116.dp)
+            )
+        }
+
         if (showOdds) {
             Column(
                 modifier = Modifier
@@ -271,7 +283,7 @@ private fun FullTableDashboard(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .width(320.dp)
-                    .fillMaxSize()
+                    .fillMaxHeight()
                     .verticalScroll(rememberScrollState())
             ) {
                 GameContextPanel(
@@ -307,9 +319,30 @@ private fun FullTableDashboard(
                 .padding(top = 10.dp, end = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            OverlayToggle("Odds", showOdds) { showOdds = !showOdds }
-            OverlayToggle("Actions", showActions) { showActions = !showActions }
-            OverlayToggle("Cards", showPicker) { showPicker = !showPicker }
+            OverlayToggle("Odds", showOdds) {
+                val visible = !showOdds
+                showOdds = visible
+                if (visible) {
+                    showActions = false
+                    showPicker = false
+                }
+            }
+            OverlayToggle("Actions", showActions) {
+                val visible = !showActions
+                showActions = visible
+                if (visible) {
+                    showOdds = false
+                    showPicker = false
+                }
+            }
+            OverlayToggle("Cards", showPicker) {
+                val visible = !showPicker
+                showPicker = visible
+                if (visible) {
+                    showOdds = false
+                    showActions = false
+                }
+            }
         }
     }
 }
@@ -482,6 +515,43 @@ private fun Double.formatBb(): String =
     if (this % 1.0 == 0.0) "${toInt()}bb" else "${"%.1f".format(this)}bb"
 
 @Composable
+private fun TableTurnHud(
+    session: GameSession,
+    equity: EquityResult?,
+    modifier: Modifier = Modifier
+) {
+    val actor = session.selectedPlayer
+    val toCall = actor?.let { (session.toCallBb - it.streetCommittedBb).coerceAtLeast(0.0) } ?: 0.0
+    Surface(
+        modifier = modifier.width(176.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = PokerSeat.copy(alpha = 0.94f),
+        border = BorderStroke(1.dp, PokerGold.copy(alpha = 0.62f)),
+        shadowElevation = 6.dp
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Text("NOW ACTING", color = PokerGold, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(
+                text = actor?.name ?: "Hand complete",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (toCall > 0.0) "Call ${toCall.formatBb()}  •  Pot ${session.potBb.formatBb()}" else "Check or bet  •  Pot ${session.potBb.formatBb()}",
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.labelSmall
+            )
+            Text(
+                text = equity?.let { "Equity ${(it.equity * 100).formatOneDecimal()}%" } ?: "Effective ${session.effectiveStackAtCurrentStreetBb.formatBb()}",
+                color = PokerGold.copy(alpha = 0.90f),
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+@Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun GameContextPanel(
     session: GameSession,
@@ -493,7 +563,38 @@ private fun GameContextPanel(
     onAdvanceStreet: () -> Unit,
     onNextHand: () -> Unit
 ) {
-    var showActionDialog by remember { mutableStateOf(false) }
+    val actingPlayer = session.selectedPlayer
+    val toCall = actingPlayer?.let { (session.toCallBb - it.streetCommittedBb).coerceAtLeast(0.0) } ?: 0.0
+    val maxCommitment = actingPlayer?.let { it.streetCommittedBb + it.stackBb } ?: 0.0
+    val minAggressiveCommitment = if (toCall > 0.0) {
+        min(maxCommitment, session.toCallBb + max(1.0, toCall))
+    } else {
+        min(maxCommitment, max(1.0, session.potBb * 0.5))
+    }
+    val defaultAggressiveCommitment = if (toCall > 0.0) {
+        min(maxCommitment, session.toCallBb + max(toCall * 2.0, session.potBb))
+    } else {
+        min(maxCommitment, max(2.0, session.potBb * 0.75))
+    }
+    var aggressiveCommitment by remember(
+        session.selectedPlayerId,
+        session.street,
+        session.toCallBb,
+        maxCommitment
+    ) { mutableStateOf(defaultAggressiveCommitment) }
+    val canAggress = actingPlayer != null && maxCommitment > minAggressiveCommitment + 0.01
+    val aggressiveAction = if (toCall > 0.0) PlayerActionType.RAISE else PlayerActionType.BET
+
+    fun setPotFraction(fraction: Double) {
+        val postCallPot = session.potBb + toCall
+        val target = if (toCall > 0.0) {
+            session.toCallBb + postCallPot * fraction
+        } else {
+            postCallPot * fraction
+        }
+        aggressiveCommitment = target.coerceIn(minAggressiveCommitment, maxCommitment)
+    }
+
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -501,12 +602,15 @@ private fun GameContextPanel(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Table context", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Start game — players at table", style = MaterialTheme.typography.labelMedium)
-            PlayerCountRow((2..5).toList(), session.players.size, onPlayersChange)
-            PlayerCountRow((6..9).toList(), session.players.size, onPlayersChange)
+            Text("Action controls", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                text = "${session.street.label}  •  Pot ${session.potBb.formatBb()}  •  To call ${session.toCallBb.formatBb()}",
+                text = "${actingPlayer?.name ?: "No player"} to act  •  ${session.street.label}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Pot ${session.potBb.formatBb()}  •  To call ${toCall.formatBb()}  •  Effective ${session.effectiveStackAtCurrentStreetBb.formatBb()}",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -520,7 +624,68 @@ private fun GameContextPanel(
                 color = MaterialTheme.colorScheme.tertiary
             )
 
-            Text("Tap a player, then record an action", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { onRecordAction(PlayerActionType.FOLD, null) },
+                    enabled = actingPlayer != null,
+                    modifier = Modifier.weight(0.8f)
+                ) { Text("Fold") }
+                Button(
+                    onClick = {
+                        onRecordAction(if (toCall > 0.0) PlayerActionType.CALL else PlayerActionType.CHECK, null)
+                    },
+                    enabled = actingPlayer != null,
+                    modifier = Modifier.weight(1.2f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PokerGold,
+                        contentColor = Color(0xFF182A25)
+                    )
+                ) {
+                    Text(if (toCall > 0.0) "Call ${toCall.formatBb()}" else "Check")
+                }
+            }
+            if (canAggress) {
+                Text(
+                    text = "${aggressiveAction.label} ${aggressiveCommitment.formatBb()}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Slider(
+                    value = aggressiveCommitment.toFloat(),
+                    onValueChange = { aggressiveCommitment = it.toDouble() },
+                    valueRange = minAggressiveCommitment.toFloat()..maxCommitment.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = PokerGold,
+                        activeTrackColor = PokerGold,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.26f)
+                    )
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf("½ pot" to 0.5, "¾ pot" to 0.75, "Pot" to 1.0).forEach { (label, fraction) ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { setPotFraction(fraction) },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Button(
+                    onClick = { onRecordAction(aggressiveAction, aggressiveCommitment) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PokerGold,
+                        contentColor = Color(0xFF182A25)
+                    )
+                ) { Text("${aggressiveAction.label} ${aggressiveCommitment.formatBb()}") }
+            }
+            OutlinedButton(
+                onClick = { onRecordAction(PlayerActionType.ALL_IN, null) },
+                enabled = actingPlayer != null && actingPlayer.stackBb > 0.0,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("All-in to ${maxCommitment.formatBb()}") }
+
+            Text("Tap any player to correct whose action is being recorded", style = MaterialTheme.typography.labelSmall)
             session.players.forEach { player ->
                 FilterChip(
                     selected = player.id == session.selectedPlayerId,
@@ -535,22 +700,14 @@ private fun GameContextPanel(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = { showActionDialog = true },
-                    enabled = session.selectedPlayer != null,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("${session.selectedPlayer?.name ?: "Player"} action")
-                }
-                OutlinedButton(
-                    onClick = onAdvanceStreet,
-                    enabled = session.street.next() != null && session.playersInHand >= 2,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Next street")
-                }
-            }
+            OutlinedButton(
+                onClick = onAdvanceStreet,
+                enabled = session.street.next() != null && session.playersInHand >= 2,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Next street — deal ${session.street.next()?.label ?: "showdown"}") }
+            Text("Table size", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            PlayerCountRow((2..5).toList(), session.players.size, onPlayersChange)
+            PlayerCountRow((6..9).toList(), session.players.size, onPlayersChange)
             OutlinedButton(onClick = onNextHand, modifier = Modifier.fillMaxWidth()) {
                 Text("Next hand • move D clockwise")
             }
@@ -602,17 +759,6 @@ private fun GameContextPanel(
                 ) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
-    }
-    if (showActionDialog) {
-        ActionEntryDialog(
-            playerName = session.selectedPlayer?.name ?: "Player",
-            toCallBb = session.selectedPlayer?.let { (session.toCallBb - it.streetCommittedBb).coerceAtLeast(0.0) } ?: 0.0,
-            onDismiss = { showActionDialog = false },
-            onConfirm = { type, amount ->
-                onRecordAction(type, amount)
-                showActionDialog = false
-            }
-        )
     }
 }
 
