@@ -1,0 +1,289 @@
+"""Turn-to-river external-sampling CFR+ gate for the HUNL abstraction.
+
+This module deliberately starts at a turn decision with a sampled opponent hand
+and river card. Turn information sets never contain that future river card;
+river information sets do. Both players' actions are traversed on every sampled
+deal, so it is a genuine two-player zero-sum CFR+ traversal across two streets,
+not a turn-only solver with a sampled showdown.
+"""
+from __future__ import annotations
+
+import json
+import random
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Dict, Iterable, List, Sequence, Tuple
+
+from solver_cfr import CardValue, card_to_int, parse_cards, winner
+
+from .abstraction import public_state_key
+from .game import Action, GameConfig, PublicState, Street, advance_street, apply_action, initial_postflop_state, legal_actions
+
+ARTIFACT_VERSION = "hunl_turn_river_external_sampling_cfr_plus_v1"
+
+
+@dataclass
+class CfrPlusNode:
+    actions: Tuple[str, ...]
+    regrets: Dict[str, float] = field(init=False)
+    strategy_sum: Dict[str, float] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.regrets = {action: 0.0 for action in self.actions}
+        self.strategy_sum = {action: 0.0 for action in self.actions}
+
+    def strategy(self, reach_probability: float) -> Dict[str, float]:
+        positive = {action: max(0.0, self.regrets[action]) for action in self.actions}
+        total = sum(positive.values())
+        current = (
+            {action: positive[action] / total for action in self.actions}
+            if total > 0
+            else {action: 1.0 / len(self.actions) for action in self.actions}
+        )
+        for action, probability in current.items():
+            self.strategy_sum[action] += reach_probability * probability
+        return current
+
+    def average_strategy(self) -> Dict[str, float]:
+        total = sum(self.strategy_sum.values())
+        if total == 0:
+            return {action: 1.0 / len(self.actions) for action in self.actions}
+        return {action: value / total for action, value in self.strategy_sum.items()}
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "actions": list(self.actions),
+            "regrets": self.regrets,
+            "strategy_sum": self.strategy_sum,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, object]) -> "CfrPlusNode":
+        node = cls(tuple(payload["actions"]))
+        node.regrets = {str(key): float(value) for key, value in dict(payload["regrets"]).items()}
+        node.strategy_sum = {str(key): float(value) for key, value in dict(payload["strategy_sum"]).items()}
+        if set(node.actions) != set(node.regrets) or set(node.actions) != set(node.strategy_sum):
+            raise ValueError("Regret artifact node has inconsistent actions.")
+        return node
+
+
+@dataclass(frozen=True)
+class TurnRiverTrainingConfig:
+    """Bounded Gate A action tree; later artifacts may widen it after validation."""
+
+    game: GameConfig = field(
+        default_factory=lambda: GameConfig(
+            postflop_bet_sizes=(0.33, 0.75, 1.0),
+            postflop_raise_sizes=(0.75, 1.5),
+            max_raises_per_street=1,
+        )
+    )
+    artifact_version: str = ARTIFACT_VERSION
+    use_gpu_terminal_evaluator: bool = False
+
+
+@dataclass(frozen=True)
+class TurnRiverResult:
+    strategy: Dict[str, float]
+    iterations: int
+    node_count: int
+    root_key: str
+    artifact_version: str
+    terminal_evaluator: str
+
+
+class TurnRiverCfrPlus:
+    """Persistent exact-combo turn/river CFR+ trainer for a fixed public spot."""
+
+    def __init__(self, config: TurnRiverTrainingConfig | None = None) -> None:
+        self.config = config or TurnRiverTrainingConfig()
+        self.nodes: Dict[str, CfrPlusNode] = {}
+
+    def train(
+        self,
+        hero_hand: Sequence[str],
+        turn_board: Sequence[str],
+        pot_bb: float,
+        stacks_bb: Tuple[float, float],
+        hero_position: str,
+        iterations: int,
+        rng: random.Random | None = None,
+    ) -> TurnRiverResult:
+        hero = parse_cards(hero_hand)
+        board = parse_cards(turn_board)
+        if len(hero) != 2 or len(board) != 4:
+            raise ValueError("Turn/river training requires two hole cards and four turn-board cards.")
+        if set(hero) & set(board):
+            raise ValueError("Hero cards and board cards must not overlap.")
+        if iterations < 1:
+            raise ValueError("iterations must be positive.")
+        if hero_position not in ("oop", "ip"):
+            raise ValueError("hero_position must be 'oop' or 'ip'.")
+
+        first_to_act = 0 if hero_position == "oop" else 1
+        root = initial_postflop_state(Street.TURN, turn_board, pot_bb, stacks_bb, first_to_act)
+        if root.to_act != 0:
+            raise ValueError("Gate A currently returns a root strategy only when Hero is OOP on the turn.")
+
+        generator = rng or random.Random()
+        remaining = [
+            (rank, suit)
+            for rank in range(13)
+            for suit in range(4)
+            if (rank, suit) not in set(hero) | set(board)
+        ]
+        sampled_deals = []
+        for _ in range(iterations):
+            villain = generator.sample(remaining, 2)
+            river = generator.choice([card for card in remaining if card not in villain])
+            sampled_deals.append((villain, river))
+        outcomes = self._showdown_outcomes(hero, board, sampled_deals)
+
+        for (villain, river), outcome in zip(sampled_deals, outcomes):
+            self._cfr(
+                state=root,
+                hero=hero,
+                villain=villain,
+                river=river,
+                showdown_outcome=outcome,
+                hero_reach=1.0,
+                villain_reach=1.0,
+            )
+
+        root_key = self._info_key(root, hero, legal_actions(root, self.config.game))
+        return TurnRiverResult(
+            strategy=self.nodes[root_key].average_strategy(),
+            iterations=iterations,
+            node_count=len(self.nodes),
+            root_key=root_key,
+            artifact_version=self.config.artifact_version,
+            terminal_evaluator="cuda_batched" if self.config.use_gpu_terminal_evaluator else "cpu_reference",
+        )
+
+    def save_artifact(self, path: str | Path, metadata: Dict[str, object] | None = None) -> None:
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "artifact_version": self.config.artifact_version,
+            "training_config": {
+                "game": asdict(self.config.game),
+                "use_gpu_terminal_evaluator": self.config.use_gpu_terminal_evaluator,
+            },
+            "metadata": metadata or {},
+            "nodes": {key: node.to_dict() for key, node in self.nodes.items()},
+        }
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        temporary.replace(destination)
+
+    @classmethod
+    def load_artifact(cls, path: str | Path, config: TurnRiverTrainingConfig | None = None) -> "TurnRiverCfrPlus":
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        expected = (config or TurnRiverTrainingConfig()).artifact_version
+        if payload.get("artifact_version") != expected:
+            raise ValueError("Regret artifact version does not match the requested training config.")
+        trainer = cls(config)
+        trainer.nodes = {key: CfrPlusNode.from_dict(value) for key, value in payload["nodes"].items()}
+        return trainer
+
+    def _cfr(
+        self,
+        state: PublicState,
+        hero: Sequence[CardValue],
+        villain: Sequence[CardValue],
+        river: CardValue,
+        showdown_outcome: int,
+        hero_reach: float,
+        villain_reach: float,
+    ) -> float:
+        if state.terminal:
+            return self._terminal_utility(state, showdown_outcome)
+        if state.street_complete:
+            if state.street == Street.TURN:
+                return self._cfr(
+                    advance_street(state, _card_label(river)), hero, villain, river, showdown_outcome, hero_reach, villain_reach
+                )
+            return self._cfr(
+                advance_street(state, None), hero, villain, river, showdown_outcome, hero_reach, villain_reach
+            )
+
+        player = state.to_act
+        private = hero if player == 0 else villain
+        actions = legal_actions(state, self.config.game)
+        action_map = {action.label: action for action in actions}
+        key = self._info_key(state, private, actions)
+        node = self.nodes.setdefault(key, CfrPlusNode(tuple(action_map)))
+        if node.actions != tuple(action_map):
+            raise ValueError("Action abstraction collision: information set has incompatible legal actions.")
+        strategy = node.strategy(hero_reach if player == 0 else villain_reach)
+
+        action_values: Dict[str, float] = {}
+        node_value = 0.0
+        for label, action in action_map.items():
+            child = apply_action(state, action, self.config.game)
+            if player == 0:
+                value = self._cfr(child, hero, villain, river, showdown_outcome, hero_reach * strategy[label], villain_reach)
+            else:
+                value = self._cfr(child, hero, villain, river, showdown_outcome, hero_reach, villain_reach * strategy[label])
+            action_values[label] = value
+            node_value += strategy[label] * value
+
+        counterfactual_reach = villain_reach if player == 0 else hero_reach
+        for label, value in action_values.items():
+            regret = value - node_value if player == 0 else node_value - value
+            node.regrets[label] = max(0.0, node.regrets[label] + counterfactual_reach * regret)
+        return node_value
+
+    def _showdown_outcomes(
+        self,
+        hero: Sequence[CardValue],
+        board: Sequence[CardValue],
+        sampled_deals: Sequence[Tuple[Sequence[CardValue], CardValue]],
+    ) -> List[int]:
+        if not self.config.use_gpu_terminal_evaluator:
+            return [winner(hero, villain, list(board) + [river]) for villain, river in sampled_deals]
+
+        from .gpu import probe_gpu
+        from .torch_evaluator import showdown_equity
+
+        status = probe_gpu()
+        if not status.available:
+            raise RuntimeError(f"CUDA terminal evaluator requested but unavailable: {status.reason}")
+        import torch
+
+        hero_cards = torch.tensor(
+            [_cards_tensor(hero, list(board) + [river]) for _, river in sampled_deals], device="cuda", dtype=torch.long
+        )
+        villain_cards = torch.tensor(
+            [_cards_tensor(villain, list(board) + [river]) for villain, river in sampled_deals], device="cuda", dtype=torch.long
+        )
+        equities = showdown_equity(hero_cards, villain_cards).cpu().tolist()
+        return [1 if equity == 1.0 else -1 if equity == 0.0 else 0 for equity in equities]
+
+    def _terminal_utility(self, state: PublicState, showdown_outcome: int) -> float:
+        if state.folded_player is not None:
+            if state.folded_player == 0:
+                return -(state.pot_bb / 2.0 + state.street_committed_bb[0])
+            return state.pot_bb / 2.0 + state.street_committed_bb[1]
+        if not state.showdown or showdown_outcome == 0:
+            return 0.0
+        total_pot = state.pot_bb + sum(state.street_committed_bb)
+        rake = min(total_pot * self.config.game.rake_pct, self.config.game.rake_cap_bb)
+        if showdown_outcome > 0:
+            return state.pot_bb / 2.0 + state.street_committed_bb[1] - rake / 2.0
+        return -(state.pot_bb / 2.0 + state.street_committed_bb[0] - rake / 2.0)
+
+    def _info_key(self, state: PublicState, private_cards: Iterable[CardValue], actions: Sequence[Action]) -> str:
+        private_key = ",".join(sorted(_card_label(card) for card in private_cards))
+        action_key = ",".join(action.label for action in actions)
+        return f"P{state.to_act}|{private_key}|{public_state_key(state, self.config.artifact_version)}|actions={action_key}"
+
+
+def _cards_tensor(hole_cards: Sequence[CardValue], board: Sequence[CardValue]) -> List[List[int]]:
+    return [[rank + 2, suit] for rank, suit in list(hole_cards) + list(board)]
+
+
+def _card_label(card: CardValue) -> str:
+    ranks = "23456789TJQKA"
+    suits = "cdhs"
+    return f"{ranks[card[0]]}{suits[card[1]]}"

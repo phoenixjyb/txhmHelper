@@ -54,12 +54,28 @@ The online API only queues a job, reports its version and progress, and returns
 an existing artifact or a bounded refinement. A phone must not wait for a
 full-game solve.
 
+The first offline checkpointable command is:
+
+```bash
+cd backend/server
+.venv/bin/python train_turn_river.py \
+  --hero As,Kd --board Jh,Td,2c,7h --pot-bb 10 --iterations 100000 \
+  --artifact ../artifacts/turn-river-as-kd.json --cuda-terminal-evaluator
+```
+
+Use `--resume` with the same artifact to continue cumulative regrets. Artifacts
+are intentionally ignored by Git until a reproducibility and convergence review
+approves a version for serving.
+
 ## Abstraction phases
 
 ### Gate A — turn/river
 
 - Exact card combos, one board canonicalizer, no neural model.
-- Turn action tree followed by a real river action tree.
+- Turn action tree followed by a real river action tree. The first implemented
+  Gate A trainer uses 33%, 75%, 100%, all-in and one raise per street so its
+  convergence and memory use can be measured before widening to the full v1
+  sizing/raise tree.
 - Benchmark CPU terminal evaluation, then a CUDA batch evaluator.
 - Acceptance: deterministic state transitions, legal action tests, toy-game
   convergence tests, and reproducible solve artifacts.
@@ -89,13 +105,14 @@ The GPU gate is passed only when all of the following are true:
   deterministic seed.
 - A correctness test compares GPU values with the CPU evaluator.
 
-Until then `/health` must report `gpu_accelerated: false`.
+The live service reports CUDA terminal-evaluator availability separately from
+the solver model. CUDA terminal payoffs are enabled only for an explicit job
+request; availability does not imply a complete four-street strategy artifact.
 
 For the current server (NVIDIA driver CUDA 12.4), install the optional runtime
 with `pip install -r requirements-gpu-cu124.txt` from `backend/server`. This
-only enables CUDA capability detection and benchmark development; it does not
-make the solver GPU accelerated until the poker evaluator is implemented and
-validated.
+enables the validated CUDA terminal evaluator. It still does not make the
+solver a complete full-NLHE strategy artifact.
 
 ## Non-goals for v1
 
