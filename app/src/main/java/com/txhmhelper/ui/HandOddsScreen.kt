@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +49,7 @@ import com.txhmhelper.odds.HandProb
 import com.txhmhelper.odds.EquityResult
 import com.txhmhelper.odds.OddsMode
 import com.txhmhelper.odds.Precision
+import kotlin.math.abs
 
 @Composable
 fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
@@ -136,36 +139,22 @@ private fun PortraitDashboard(
     onRankSelected: (Rank) -> Unit,
     onResetPicker: () -> Unit
 ) {
-    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
-        OddsPanel(state, onPrecisionChange)
-        PokerTableSurface(
-            session = state.gameSession,
-            hole = state.boardState.hole,
-            community = state.boardState.community,
-            target = state.targetSlot,
-            onActionPlayerSelected = onActionPlayerSelected,
-            onSlotSelected = onSlotSelected,
-            onClear = onClear,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-        )
-        GameContextPanel(
-            session = state.gameSession,
-            equity = state.equity,
-            isComputing = state.isComputing,
-            onPlayersChange = onPlayersChange,
-            onActionPlayerSelected = onActionPlayerSelected,
-            onRecordAction = onRecordAction,
-            onAdvanceStreet = onAdvanceStreet
-        )
-        CardPicker(
-            pendingSuit = pendingSuit,
-            pendingRank = pendingRank,
-            onSuitSelected = onSuitSelected,
-            onRankSelected = onRankSelected,
-            onResetPicker = onResetPicker,
-            usedCards = state.boardState.usedCards()
-        )
-    }
+    FullTableDashboard(
+        modifier = modifier,
+        state = state,
+        onPrecisionChange = onPrecisionChange,
+        onPlayersChange = onPlayersChange,
+        onActionPlayerSelected = onActionPlayerSelected,
+        onRecordAction = onRecordAction,
+        onAdvanceStreet = onAdvanceStreet,
+        onSlotSelected = onSlotSelected,
+        onClear = onClear,
+        pendingSuit = pendingSuit,
+        pendingRank = pendingRank,
+        onSuitSelected = onSuitSelected,
+        onRankSelected = onRankSelected,
+        onResetPicker = onResetPicker
+    )
 }
 
 @Composable
@@ -185,34 +174,72 @@ private fun LandscapeDashboard(
     onRankSelected: (Rank) -> Unit,
     onResetPicker: () -> Unit
 ) {
-    Column(modifier = modifier) {
-        Row(modifier = Modifier.weight(1f)) {
+    FullTableDashboard(
+        modifier = modifier,
+        state = state,
+        onPrecisionChange = onPrecisionChange,
+        onPlayersChange = onPlayersChange,
+        onActionPlayerSelected = onActionPlayerSelected,
+        onRecordAction = onRecordAction,
+        onAdvanceStreet = onAdvanceStreet,
+        onSlotSelected = onSlotSelected,
+        onClear = onClear,
+        pendingSuit = pendingSuit,
+        pendingRank = pendingRank,
+        onSuitSelected = onSuitSelected,
+        onRankSelected = onRankSelected,
+        onResetPicker = onResetPicker
+    )
+}
+
+@Composable
+private fun FullTableDashboard(
+    modifier: Modifier,
+    state: HandOddsUiState,
+    onPrecisionChange: (Precision) -> Unit,
+    onPlayersChange: (Int) -> Unit,
+    onActionPlayerSelected: (Int) -> Unit,
+    onRecordAction: (PlayerActionType, Double?) -> Unit,
+    onAdvanceStreet: () -> Unit,
+    onSlotSelected: (TargetSlot) -> Unit,
+    onClear: (TargetSlot) -> Unit,
+    pendingSuit: Suit?,
+    pendingRank: Rank?,
+    onSuitSelected: (Suit) -> Unit,
+    onRankSelected: (Rank) -> Unit,
+    onResetPicker: () -> Unit
+) {
+    var showOdds by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(true) }
+    Box(modifier = modifier) {
+        PokerTableSurface(
+            session = state.gameSession,
+            hole = state.boardState.hole,
+            community = state.boardState.community,
+            target = state.targetSlot,
+            onActionPlayerSelected = onActionPlayerSelected,
+            onSlotSelected = onSlotSelected,
+            onClear = onClear,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (showOdds) {
             Column(
                 modifier = Modifier
-                    .weight(0.24f)
+                    .align(Alignment.TopStart)
+                    .width(300.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 OddsPanel(state, onPrecisionChange)
             }
+        }
+        if (showActions) {
             Column(
                 modifier = Modifier
-                    .weight(0.50f)
-                    .padding(vertical = 12.dp)
-            ) {
-                PokerTableSurface(
-                    session = state.gameSession,
-                    hole = state.boardState.hole,
-                    community = state.boardState.community,
-                    target = state.targetSlot,
-                    onActionPlayerSelected = onActionPlayerSelected,
-                    onSlotSelected = onSlotSelected,
-                    onClear = onClear,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(0.26f)
+                    .align(Alignment.TopEnd)
+                    .width(320.dp)
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
                 GameContextPanel(
@@ -226,14 +253,48 @@ private fun LandscapeDashboard(
                 )
             }
         }
-        CardPicker(
-            pendingSuit = pendingSuit,
-            pendingRank = pendingRank,
-            onSuitSelected = onSuitSelected,
-            onRankSelected = onRankSelected,
-            onResetPicker = onResetPicker,
-            usedCards = state.boardState.usedCards(),
-            modifier = Modifier.padding(horizontal = 12.dp)
+        if (showPicker) {
+            DialCardPicker(
+                pendingSuit = pendingSuit,
+                pendingRank = pendingRank,
+                usedCards = state.boardState.usedCards(),
+                onSuitSelected = onSuitSelected,
+                onRankSelected = onRankSelected,
+                onResetPicker = onResetPicker,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            OverlayToggle("Odds", showOdds) { showOdds = !showOdds }
+            OverlayToggle("Actions", showActions) { showActions = !showActions }
+            OverlayToggle("Cards", showPicker) { showPicker = !showPicker }
+        }
+    }
+}
+
+@Composable
+private fun OverlayToggle(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = if (selected) PokerGold else PokerSeat,
+        border = BorderStroke(1.dp, if (selected) PokerGold else Color.White.copy(alpha = 0.45f)),
+        shadowElevation = 4.dp
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            color = if (selected) Color(0xFF1E241F) else Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
         )
     }
 }
@@ -600,12 +661,16 @@ private fun PokerTableSurface(
     onActionPlayerSelected: (Int) -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
+    tableHeight: Dp? = null,
     modifier: Modifier = Modifier
 ) {
+    val sizeModifier = if (tableHeight == null) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier.fillMaxWidth().height(tableHeight)
+    }
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(286.dp),
+        modifier = modifier.then(sizeModifier),
         shape = RoundedCornerShape(48),
         color = PokerRail,
         shadowElevation = 8.dp
@@ -620,6 +685,7 @@ private fun PokerTableSurface(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.Center)
+                        .offset(y = (-34).dp)
                         .fillMaxWidth(0.76f)
                         .height(118.dp),
                     shape = RoundedCornerShape(50),
@@ -672,7 +738,7 @@ private fun PokerTableSurface(
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .offset(y = (-70).dp),
+                        .offset(y = (-48).dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     hole.forEachIndexed { index, card ->
@@ -920,6 +986,144 @@ private fun CardSlot(
 }
 
 @Composable
+private fun DialCardPicker(
+    pendingSuit: Suit?,
+    pendingRank: Rank?,
+    usedCards: Set<Card>,
+    onSuitSelected: (Suit) -> Unit,
+    onRankSelected: (Rank) -> Unit,
+    onResetPicker: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xEE182A25),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.32f)),
+        shadowElevation = 10.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            RankDial(
+                selectedRank = pendingRank,
+                selectedSuit = pendingSuit,
+                usedCards = usedCards,
+                onRankSelected = onRankSelected,
+                modifier = Modifier.weight(1f)
+            )
+            SuitSlider(
+                selectedSuit = pendingSuit,
+                onSuitSelected = onSuitSelected,
+                modifier = Modifier.weight(1.2f)
+            )
+            Text(
+                text = "Reset",
+                color = Color.White.copy(alpha = if (pendingSuit != null || pendingRank != null) 1f else 0.45f),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .clickable(enabled = pendingSuit != null || pendingRank != null, onClick = onResetPicker)
+                    .padding(6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RankDial(
+    selectedRank: Rank?,
+    selectedSuit: Suit?,
+    usedCards: Set<Card>,
+    onRankSelected: (Rank) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ranks = Rank.entries
+    val currentIndex = ranks.indexOf(selectedRank ?: Rank.A).coerceAtLeast(0)
+    val previous = ranks[(currentIndex - 1 + ranks.size) % ranks.size]
+    val current = ranks[currentIndex]
+    val next = ranks[(currentIndex + 1) % ranks.size]
+    fun select(rank: Rank) {
+        val unavailable = selectedSuit?.let { suit -> usedCards.any { it.rank == rank && it.suit == suit } } == true
+        if (!unavailable) onRankSelected(rank)
+    }
+    Surface(
+        modifier = modifier.pointerInput(selectedRank, selectedSuit, usedCards) {
+            var dragged = 0f
+            detectDragGestures(
+                onDragStart = { dragged = 0f },
+                onDrag = { _, amount ->
+                    dragged += amount.y
+                    if (abs(dragged) >= 22f) {
+                        val direction = if (dragged < 0f) 1 else -1
+                        val rank = ranks[(currentIndex + direction + ranks.size) % ranks.size]
+                        select(rank)
+                        dragged = 0f
+                    }
+                }
+            )
+        },
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF233A33),
+        border = BorderStroke(1.dp, PokerGold.copy(alpha = 0.72f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("RANK • SWIPE", color = PokerGold, style = MaterialTheme.typography.labelSmall)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(previous.label, color = Color.White.copy(alpha = 0.45f), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    current.label,
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(next.label, color = Color.White.copy(alpha = 0.45f), style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SuitSlider(
+    selectedSuit: Suit?,
+    onSuitSelected: (Suit) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val suits = Suit.entries
+    val selectedIndex = (selectedSuit ?: Suit.SPADES).ordinal
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("SUIT", color = PokerGold, style = MaterialTheme.typography.labelSmall)
+        Slider(
+            value = selectedIndex.toFloat(),
+            onValueChange = { onSuitSelected(suits[it.toInt().coerceIn(0, suits.lastIndex)]) },
+            valueRange = 0f..suits.lastIndex.toFloat(),
+            steps = 2,
+            colors = SliderDefaults.colors(
+                thumbColor = PokerGold,
+                activeTrackColor = PokerGold,
+                inactiveTrackColor = Color.White.copy(alpha = 0.28f)
+            )
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            suits.forEach { suit ->
+                Text(
+                    text = suitSymbol(suit),
+                    color = if (suit == selectedSuit) PokerGold else Color.White.copy(alpha = 0.65f),
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CardPicker(
     pendingSuit: Suit?,
     pendingRank: Rank?,
@@ -927,17 +1131,20 @@ private fun CardPicker(
     onRankSelected: (Rank) -> Unit,
     onResetPicker: () -> Unit,
     usedCards: Set<Card>,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 16.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
     ) {
-        Text("Tap suit then rank", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!compact) {
+            Text("Tap suit then rank", style = MaterialTheme.typography.titleMedium)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
             Suit.entries.forEach { suit ->
                 val selected = pendingSuit == suit
                 AssistChip(
@@ -953,7 +1160,7 @@ private fun CardPicker(
                 onClick = onResetPicker,
                 enabled = pendingSuit != null || pendingRank != null
             ) {
-                Text("Reset picker")
+                Text(if (compact) "Reset" else "Reset picker")
             }
         }
         val topRow = listOf(Rank.A, Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE, Rank.SIX, Rank.SEVEN)
