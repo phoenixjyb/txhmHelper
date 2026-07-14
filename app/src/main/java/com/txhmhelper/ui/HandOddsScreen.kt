@@ -2,6 +2,7 @@ package com.txhmhelper.ui
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,9 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -29,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -134,6 +138,16 @@ private fun PortraitDashboard(
 ) {
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
         OddsPanel(state, onPrecisionChange)
+        PokerTableSurface(
+            session = state.gameSession,
+            hole = state.boardState.hole,
+            community = state.boardState.community,
+            target = state.targetSlot,
+            onActionPlayerSelected = onActionPlayerSelected,
+            onSlotSelected = onSlotSelected,
+            onClear = onClear,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+        )
         GameContextPanel(
             session = state.gameSession,
             equity = state.equity,
@@ -142,13 +156,6 @@ private fun PortraitDashboard(
             onActionPlayerSelected = onActionPlayerSelected,
             onRecordAction = onRecordAction,
             onAdvanceStreet = onAdvanceStreet
-        )
-        CardBoard(
-            hole = state.boardState.hole,
-            community = state.boardState.community,
-            target = state.targetSlot,
-            onSlotSelected = onSlotSelected,
-            onClear = onClear
         )
         CardPicker(
             pendingSuit = pendingSuit,
@@ -182,28 +189,30 @@ private fun LandscapeDashboard(
         Row(modifier = Modifier.weight(1f)) {
             Column(
                 modifier = Modifier
-                    .weight(0.34f)
+                    .weight(0.24f)
                     .verticalScroll(rememberScrollState())
             ) {
                 OddsPanel(state, onPrecisionChange)
             }
             Column(
                 modifier = Modifier
-                    .weight(0.42f)
-                    .verticalScroll(rememberScrollState())
+                    .weight(0.50f)
+                    .padding(vertical = 12.dp)
             ) {
-                CardBoard(
+                PokerTableSurface(
+                    session = state.gameSession,
                     hole = state.boardState.hole,
                     community = state.boardState.community,
                     target = state.targetSlot,
+                    onActionPlayerSelected = onActionPlayerSelected,
                     onSlotSelected = onSlotSelected,
                     onClear = onClear,
-                    cardHeight = 68.dp
+                    modifier = Modifier.fillMaxSize()
                 )
             }
             Column(
                 modifier = Modifier
-                    .weight(0.24f)
+                    .weight(0.26f)
                     .verticalScroll(rememberScrollState())
             ) {
                 GameContextPanel(
@@ -572,6 +581,236 @@ private fun PlayerCountRow(
                 label = { Text(playersInHand.toString()) },
                 modifier = Modifier.weight(1f)
             )
+        }
+    }
+}
+
+private val PokerRail = Color(0xFF39261A)
+private val PokerFelt = Color(0xFF07563B)
+private val PokerFeltInner = Color(0xFF0A6748)
+private val PokerGold = Color(0xFFFFD166)
+private val PokerSeat = Color(0xFF132A24)
+
+@Composable
+private fun PokerTableSurface(
+    session: GameSession,
+    hole: List<Card?>,
+    community: List<Card?>,
+    target: TargetSlot,
+    onActionPlayerSelected: (Int) -> Unit,
+    onSlotSelected: (TargetSlot) -> Unit,
+    onClear: (TargetSlot) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(286.dp),
+        shape = RoundedCornerShape(48),
+        color = PokerRail,
+        shadowElevation = 8.dp
+    ) {
+        Surface(
+            modifier = Modifier.padding(10.dp),
+            shape = RoundedCornerShape(42),
+            border = BorderStroke(2.dp, PokerGold.copy(alpha = 0.55f)),
+            color = PokerFelt
+        ) {
+            Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth(0.76f)
+                        .height(118.dp),
+                    shape = RoundedCornerShape(50),
+                    color = PokerFeltInner,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f))
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(top = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "${session.street.label.uppercase()}  •  POT ${session.potBb.formatBb()}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PokerGold,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            community.forEachIndexed { index, card ->
+                                TableCard(
+                                    card = card,
+                                    label = when (index) {
+                                        0 -> "F1"
+                                        1 -> "F2"
+                                        2 -> "F3"
+                                        3 -> "T"
+                                        else -> "R"
+                                    },
+                                    selected = target == TargetSlot.Community(index),
+                                    onClick = { onSlotSelected(TargetSlot.Community(index)) },
+                                    onClear = { onClear(TargetSlot.Community(index)) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                session.players.filter { it.id != 0 }.forEachIndexed { seatIndex, player ->
+                    val placement = opponentSeatPlacements[seatIndex % opponentSeatPlacements.size]
+                    PokerSeatChip(
+                        player = player,
+                        selected = session.selectedPlayerId == player.id,
+                        modifier = Modifier
+                            .align(placement.alignment)
+                            .offset(x = placement.x, y = placement.y),
+                        onClick = { onActionPlayerSelected(player.id) }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = (-70).dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    hole.forEachIndexed { index, card ->
+                        TableCard(
+                            card = card,
+                            label = "H${index + 1}",
+                            selected = target == TargetSlot.Hole(index),
+                            onClick = { onSlotSelected(TargetSlot.Hole(index)) },
+                            onClear = { onClear(TargetSlot.Hole(index)) }
+                        )
+                    }
+                }
+                session.players.firstOrNull()?.let { hero ->
+                    PokerSeatChip(
+                        player = hero,
+                        selected = session.selectedPlayerId == hero.id,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .offset(y = (-8).dp),
+                        onClick = { onActionPlayerSelected(hero.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class SeatPlacement(
+    val alignment: Alignment,
+    val x: Dp = 0.dp,
+    val y: Dp = 0.dp
+)
+
+private val opponentSeatPlacements = listOf(
+    SeatPlacement(Alignment.TopCenter, y = 2.dp),
+    SeatPlacement(Alignment.CenterEnd, x = (-8).dp, y = (-34).dp),
+    SeatPlacement(Alignment.CenterStart, x = 8.dp, y = (-34).dp),
+    SeatPlacement(Alignment.TopEnd, x = (-26).dp, y = 12.dp),
+    SeatPlacement(Alignment.TopStart, x = 26.dp, y = 12.dp),
+    SeatPlacement(Alignment.CenterEnd, x = (-8).dp, y = 36.dp),
+    SeatPlacement(Alignment.CenterStart, x = 8.dp, y = 36.dp),
+    SeatPlacement(Alignment.TopCenter, y = 48.dp)
+)
+
+@Composable
+private fun PokerSeatChip(
+    player: com.txhmhelper.model.TablePlayer,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    val borderColor = when {
+        selected -> PokerGold
+        !player.isInHand -> Color(0xFF8A8A8A)
+        else -> Color.White.copy(alpha = 0.42f)
+    }
+    Surface(
+        modifier = modifier
+            .width(112.dp)
+            .clickable(enabled = player.isInHand, onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = if (player.isInHand) PokerSeat else PokerSeat.copy(alpha = 0.45f),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
+        shadowElevation = if (selected) 6.dp else 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = player.name,
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = if (player.isInHand) {
+                    "${player.stackBb.formatBb()}  •  ${player.streetCommittedBb.formatBb()} in"
+                } else {
+                    "folded"
+                },
+                color = if (selected) PokerGold else Color.White.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun TableCard(
+    card: Card?,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onClear: () -> Unit
+) {
+    val suitColor = when (card?.suit) {
+        Suit.HEARTS, Suit.DIAMONDS -> Color(0xFFB3261E)
+        else -> Color(0xFF17212B)
+    }
+    Surface(
+        modifier = Modifier
+            .width(42.dp)
+            .height(62.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(6.dp),
+        color = Color(0xFFFFFCF6),
+        border = BorderStroke(if (selected) 3.dp else 1.dp, if (selected) PokerGold else Color(0xFFDDD2BF)),
+        shadowElevation = 3.dp
+    ) {
+        Box(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+            Text(
+                text = card?.rank?.label ?: label,
+                color = suitColor,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+            Text(
+                text = card?.let { suitSymbol(it.suit) } ?: "•",
+                color = suitColor,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            if (card != null) {
+                Text(
+                    text = "×",
+                    color = Color(0xFF7C5C40),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .clickable(onClick = onClear)
+                )
+            }
         }
     }
 }
