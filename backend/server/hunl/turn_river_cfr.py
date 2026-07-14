@@ -224,12 +224,7 @@ class TurnRiverCfrPlus:
         self.artifact_metadata = dict(metadata or {})
         payload = {
             "artifact_version": self.config.artifact_version,
-            "training_config": {
-                "game": asdict(self.config.game),
-                "use_gpu_terminal_evaluator": self.config.use_gpu_terminal_evaluator,
-                "use_board_texture_buckets": self.config.use_board_texture_buckets,
-                "use_private_hand_buckets": self.config.use_private_hand_buckets,
-            },
+            "training_config": self._serialized_training_config(),
             "metadata": self.artifact_metadata,
             "total_iterations": self.total_iterations,
             "nodes": {key: node.to_dict() for key, node in self.nodes.items()},
@@ -281,14 +276,21 @@ class TurnRiverCfrPlus:
     @classmethod
     def load_artifact(cls, path: str | Path, config: TurnRiverTrainingConfig | None = None) -> "TurnRiverCfrPlus":
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        expected = (config or TurnRiverTrainingConfig()).artifact_version
+        selected_config = config or TurnRiverTrainingConfig()
+        expected = selected_config.artifact_version
         if payload.get("artifact_version") != expected:
             raise ValueError("Regret artifact version does not match the requested training config.")
-        trainer = cls(config)
+        expected_training_config = _serialized_training_config(selected_config)
+        if payload.get("training_config") != expected_training_config:
+            raise ValueError("Regret artifact training configuration does not match the requested config.")
+        trainer = cls(selected_config)
         trainer.nodes = {key: CfrPlusNode.from_dict(value) for key, value in payload["nodes"].items()}
         trainer.total_iterations = int(payload.get("total_iterations", 0))
         trainer.artifact_metadata = dict(payload.get("metadata", {}))
         return trainer
+
+    def _serialized_training_config(self) -> Dict[str, object]:
+        return _serialized_training_config(self.config)
 
     def _cfr(
         self,
@@ -419,3 +421,18 @@ class FlopTurnRiverCfrPlus(TurnRiverCfrPlus):
         config: FlopTurnRiverTrainingConfig | None = None,
     ) -> "FlopTurnRiverCfrPlus":
         return super().load_artifact(path, config or FlopTurnRiverTrainingConfig())
+
+
+def _serialized_training_config(config: TurnRiverTrainingConfig | FlopTurnRiverTrainingConfig) -> Dict[str, object]:
+    """Match JSON's list/dict representation when validating loaded artifacts."""
+    return json.loads(
+        json.dumps(
+            {
+                "game": asdict(config.game),
+                "use_gpu_terminal_evaluator": config.use_gpu_terminal_evaluator,
+                "use_board_texture_buckets": config.use_board_texture_buckets,
+                "use_private_hand_buckets": config.use_private_hand_buckets,
+            },
+            sort_keys=True,
+        )
+    )

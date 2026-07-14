@@ -78,11 +78,26 @@ within-seed stability before the held-out numbers are used for promotion.
 
 ## Next research gate
 
-1. Establish a paired exact/bucketed checkpoint runner so each held-out case can
-   reach the within-seed stability gate before comparison.
-2. Re-run the held-out report at the matched stable checkpoint depth.
-3. Only then decide whether bucket features need refinement or larger bucketed
-   pilots are justified.
+The paired checkpoint runner is now implemented. It preserves matched chance
+samples across exact and bucketed artifacts, writes their root deltas at every
+checkpoint, and enforces artifact configuration matching on resume.
+
+First paired server baseline:
+
+```bash
+cd /home/converge/data/yanbo/txhmHelper/backend/server
+.venv/bin/python train_gate_b_paired.py \
+  --hero As,Kd --board Jh,Td,2c --pot-bb 10 --stack-bb 90 \
+  --iterations 100 --checkpoint-interval 25 \
+  --exact-artifact ../artifacts/gate-b-exact-paired-20260714.json \
+  --bucketed-artifact ../artifacts/gate-b-bucketed-paired-20260714.json \
+  --report ../artifacts/gate-b-paired-20260714.json \
+  --cuda-terminal-evaluator --seed 20260719
+```
+
+Then re-run the held-out report at a matched stable checkpoint depth. Only then
+decide whether bucket features need refinement or larger bucketed pilots are
+justified.
 
 Gate B remains offline research infrastructure. The deployed `/v1/solve`
 endpoint remains the bounded one-street CFR+ service; it does not read these

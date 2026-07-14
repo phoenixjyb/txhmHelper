@@ -41,6 +41,11 @@ low delta is insufficient. Do not interpret a held-out exact-versus-bucketed
 difference before this gate: otherwise it mixes sampling/training noise with
 abstraction error.
 
+Use `server/train_gate_b_paired.py` for this gate. It keeps separate exact and
+bucketed artifacts on matched RNG streams, records both deltas plus their
+current root-policy distance at every checkpoint, and can stop only after both
+models satisfy the four-checkpoint condition.
+
 ### 3. Held-out abstraction gate
 
 Use `server/validate_gate_b_abstraction.py` with the versioned held-out

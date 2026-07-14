@@ -82,6 +82,18 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
         restored.setstate(_as_tuple(resumed.artifact_metadata["rng_state"]))
         self.assertEqual(random.Random(7).random(), restored.random())
 
+    def test_artifact_rejects_different_bucket_configuration(self):
+        bucketed = FlopTurnRiverCfrPlus(FlopTurnRiverTrainingConfig())
+        exact_config = FlopTurnRiverTrainingConfig(
+            use_board_texture_buckets=False,
+            use_private_hand_buckets=False,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "bucketed.json"
+            bucketed.save_artifact(artifact)
+            with self.assertRaisesRegex(ValueError, "training configuration"):
+                FlopTurnRiverCfrPlus.load_artifact(artifact, exact_config)
+
     def test_flop_gate_traverses_flop_turn_and_river_information_sets(self):
         config = FlopTurnRiverTrainingConfig(
             game=GameConfig(
