@@ -35,6 +35,7 @@ class V1ApiTest(unittest.TestCase):
 
         self.assertEqual("complete", completed.status, completed.error)
         self.assertIsNotNone(completed.result)
+        self.assertEqual("cpu_reference", completed.result.terminal_evaluator)
         self.assertAlmostEqual(1.0, sum(completed.result.strategy.values()), places=8)
 
 

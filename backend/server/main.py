@@ -11,8 +11,9 @@ from pydantic import BaseModel, Field
 
 from solver_cfr import solve_cfr
 from solver_v2 import HeadsUpPostflopCfr, WeightedCombo
+from hunl.gpu import probe_gpu
 
-app = FastAPI(title="TX Hold'em GTO API", version="0.2.0")
+app = FastAPI(title="TX Hold'em GTO API", version="0.3.0")
 
 
 class SolvePayload(BaseModel):
@@ -53,6 +54,7 @@ class V1SolvePayload(BaseModel):
     rake_pct: float = Field(default=0.0, ge=0, le=0.10)
     rake_cap: float = Field(default=0.0, ge=0)
     iterations: int = Field(default=5_000, ge=100, le=50_000)
+    terminal_evaluator: Literal["cpu", "cuda"] = "cpu"
 
 
 class V1SolveResult(BaseModel):
@@ -60,6 +62,7 @@ class V1SolveResult(BaseModel):
     iterations: int
     node_count: int
     model: str
+    terminal_evaluator: str
     note: str
 
 
@@ -86,11 +89,13 @@ solver_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="txhm-cfr
 
 @app.get("/health")
 def health():
+    gpu = probe_gpu()
     return {
         "status": "ok",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "solver": "heads-up-postflop-cfr-plus-v1",
-        "gpu_accelerated": "false",
+        "gpu_terminal_evaluator_available": gpu.available,
+        "gpu_device": gpu.device_name,
     }
 
 
@@ -170,16 +175,19 @@ def _run_v1_solve(job_id: str, payload: V1SolvePayload) -> None:
             action_history=payload.action_history,
             villain_range=weighted_range,
             iterations=payload.iterations,
+            use_gpu_terminal_evaluator=payload.terminal_evaluator == "cuda",
         )
         result = V1SolveResult(
             strategy=solved.strategy,
             iterations=solved.iterations,
             node_count=solved.node_count,
             model=solved.model,
+            terminal_evaluator=solved.terminal_evaluator,
             note=(
                 "CFR+ in a bounded heads-up postflop game: weighted villain range, "
                 "configured bet sizes, one capped raise, and sampled runouts. "
-                "Later-street decisions are not yet modeled."
+                "Later-street decisions are not yet modeled. "
+                f"Terminal payoffs used the {solved.terminal_evaluator} evaluator."
             ),
         )
         with jobs_lock:
