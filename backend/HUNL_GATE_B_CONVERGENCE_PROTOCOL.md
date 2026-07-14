@@ -77,6 +77,11 @@ must have maximum root-action difference `<= 2.5%` pairwise. Larger drift means
 continue training, improve sampling, or revise the abstraction; do not publish
 recommendations.
 
+Use `server/compare_gate_b_cross_seed_artifacts.py` on the same stable
+artifact directory. It reports every exact and bucketed model pair separately;
+the exact reference must satisfy the gate too, otherwise an exact-vs-bucketed
+difference still contains unresolved training noise.
+
 ### 5. Resource and stop rules
 
 - Stop before an artifact exceeds 2 GB or a checkpoint exceeds 30 minutes.

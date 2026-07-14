@@ -6,6 +6,7 @@ from pathlib import Path
 
 from hunl.gate_b_artifact_compare import compare_stable_artifacts
 from hunl.gate_b_batch import build_held_out_jobs, write_json_atomic
+from hunl.gate_b_cross_seed_compare import compare_cross_seed_stable_artifacts
 from hunl.gate_b_validation import load_held_out_cases
 from hunl.turn_river_cfr import FlopTurnRiverCfrPlus, FlopTurnRiverTrainingConfig
 
@@ -34,11 +35,16 @@ class GateBArtifactCompareTest(unittest.TestCase):
             write_json_atomic(job.report, {"stable": True, "history": [{"total_iterations": 2}]})
 
             report = compare_stable_artifacts(jobs, use_gpu_terminal_evaluator=False)
+            cross_seed = compare_cross_seed_stable_artifacts(jobs, use_gpu_terminal_evaluator=False)
 
         self.assertEqual(1, report["stable_pair_count"])
         self.assertEqual([jobs[1].label], report["pending_jobs"])
         self.assertIsNotNone(report["summary"])
+        self.assertEqual(2, len(cross_seed["groups"]))
+        self.assertEqual([jobs[1].label], cross_seed["pending_jobs"])
+        self.assertEqual(0, cross_seed["groups"][0]["pair_count"])
         json.dumps(report)
+        json.dumps(cross_seed)
 
 
 if __name__ == "__main__":
