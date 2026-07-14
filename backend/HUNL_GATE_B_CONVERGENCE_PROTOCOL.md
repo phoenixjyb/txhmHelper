@@ -56,6 +56,11 @@ precondition sequentially for every case/seed pair. It is resumable, skips
 already-stable jobs, applies the artifact/time caps, and writes a batch summary
 after each completed job.
 
+Use `server/compare_gate_b_stable_artifacts.py` to compare only the pairs that
+have passed this stability precondition. It reads saved roots without training,
+reports incomplete jobs as pending, and produces the per-stratum error summary
+used for the acceptance threshold.
+
 - At least four board/private-hand strata and three independent seeds, using
   the same stable iteration/checkpoint contract for exact and bucketed runs.
 - Report maximum root-action error and total variation between exact and

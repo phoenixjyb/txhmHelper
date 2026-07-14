@@ -118,6 +118,16 @@ cd /home/converge/data/yanbo/txhmHelper/backend/server
   --cuda-terminal-evaluator
 ```
 
+As stable pairs arrive, compare them without retraining:
+
+```bash
+.venv/bin/python compare_gate_b_stable_artifacts.py \
+  --seeds 20260716,20260717,20260718 \
+  --input-dir ../artifacts/gate-b-heldout-stability-20260714 \
+  --output ../artifacts/gate-b-heldout-stability-20260714/stable-comparison.json \
+  --cuda-terminal-evaluator
+```
+
 The one-spot paired command is:
 
 ```bash
