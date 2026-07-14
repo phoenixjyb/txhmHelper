@@ -52,6 +52,7 @@ import com.txhmhelper.model.GameSession
 import com.txhmhelper.model.HandType
 import com.txhmhelper.model.PlayerActionType
 import com.txhmhelper.model.Rank
+import com.txhmhelper.model.Stage
 import com.txhmhelper.model.Suit
 import com.txhmhelper.model.TargetSlot
 import com.txhmhelper.odds.HandProb
@@ -291,6 +292,9 @@ private fun FullTableDashboard(
                     session = state.gameSession,
                     equity = state.equity,
                     isComputing = state.isComputing,
+                    gtoStatus = state.gtoStatus,
+                    gtoAdvice = state.gtoAdvice,
+                    boardStage = state.boardState.stage(),
                     onPlayersChange = onPlayersChange,
                     onActionPlayerSelected = onActionPlayerSelected,
                     onRecordAction = onRecordAction,
@@ -558,6 +562,9 @@ private fun GameContextPanel(
     session: GameSession,
     equity: EquityResult?,
     isComputing: Boolean,
+    gtoStatus: GtoStatus,
+    gtoAdvice: String?,
+    boardStage: Stage,
     onPlayersChange: (Int) -> Unit,
     onActionPlayerSelected: (Int) -> Unit,
     onRecordAction: (PlayerActionType, Double?) -> Unit,
@@ -623,6 +630,12 @@ private fun GameContextPanel(
                 text = "Dealer: ${session.players.first { it.id == session.dealerPlayerId }.name} (D)",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.tertiary
+            )
+            SolverStatusCard(
+                status = gtoStatus,
+                advice = gtoAdvice,
+                session = session,
+                boardStage = boardStage
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -742,25 +755,66 @@ private fun GameContextPanel(
                 else -> Text("Select both hole cards for win equity.", style = MaterialTheme.typography.bodyMedium)
             }
 
-            Text(
-                text = when {
-                    session.players.size != 2 || session.playersInHand != 2 -> "GTO: heads-up only; multiway shows equity and action tracking"
-                    session.isCurrentStreetComplete -> "GTO: street complete — advance the street after cards are dealt"
-                    session.selectedPlayerId != 0 -> "GTO: record the opponent's decision; analysis runs on your turn"
-                    session.potBeforeCurrentStreetBb <= 0.0 -> "GTO: record the preflop pot before postflop analysis"
-                    else -> "GTO: heads-up CFR+ uses this street's exact pot, stack, and action amounts"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = if (
-                    session.players.size == 2 &&
-                    session.playersInHand == 2 &&
-                    session.selectedPlayerId == 0 &&
-                    !session.isCurrentStreetComplete &&
-                    session.potBeforeCurrentStreetBb > 0.0
-                ) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
-            )
         }
     }
+}
+
+@Composable
+private fun SolverStatusCard(
+    status: GtoStatus,
+    advice: String?,
+    session: GameSession,
+    boardStage: Stage
+) {
+    val (heading, message, color) = when (status) {
+        GtoStatus.LOADING -> Triple(
+            "SERVER CFR • CALCULATING",
+            "Submitting the current heads-up spot to the solver.",
+            PokerGold
+        )
+        GtoStatus.AVAILABLE -> Triple(
+            "SERVER CFR • STRATEGY",
+            advice ?: "Strategy received.",
+            Color(0xFF9EE6B8)
+        )
+        GtoStatus.UNAVAILABLE -> Triple(
+            "SERVER CFR • UNAVAILABLE",
+            "Local equity still works. Check the solver connection before relying on strategy.",
+            Color(0xFFFF9B9B)
+        )
+        GtoStatus.IDLE -> Triple(
+            "SERVER CFR • STANDBY",
+            gtoStandbyMessage(session, boardStage),
+            Color.White.copy(alpha = 0.72f)
+        )
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = PokerSeat.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.72f))
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(heading, color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(message, color = Color.White.copy(alpha = 0.90f), style = MaterialTheme.typography.bodySmall)
+            if (status == GtoStatus.AVAILABLE) {
+                Text(
+                    "Heads-up postflop CFR approximation • server result",
+                    color = Color.White.copy(alpha = 0.62f),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+private fun gtoStandbyMessage(session: GameSession, boardStage: Stage): String = when {
+    session.players.size != 2 || session.playersInHand != 2 -> "Heads-up only; this table is showing local multiway equity."
+    boardStage == Stage.PREFLOP -> "Deal the flop to enable postflop solver analysis."
+    session.selectedPlayerId != 0 -> "Record the opponent's action; analysis runs on your turn."
+    session.isCurrentStreetComplete -> "Deal the next street after the betting line is complete."
+    session.potBeforeCurrentStreetBb <= 0.0 -> "Record the preflop pot before requesting strategy."
+    else -> "Ready to submit this heads-up postflop spot."
 }
 
 @Composable
