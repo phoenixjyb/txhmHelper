@@ -1,10 +1,12 @@
 package com.txhmhelper.ui
 
+import android.graphics.Paint
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,11 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.txhmhelper.model.Card
@@ -50,6 +56,13 @@ import com.txhmhelper.odds.EquityResult
 import com.txhmhelper.odds.OddsMode
 import com.txhmhelper.odds.Precision
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.min
+import kotlin.math.PI
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
@@ -87,6 +100,7 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 onActionPlayerSelected = viewModel::selectActionPlayer,
                 onRecordAction = viewModel::recordPlayerAction,
                 onAdvanceStreet = viewModel::advanceActionStreet,
+                onNextHand = viewModel::startNextHand,
                 onSlotSelected = viewModel::selectSlot,
                 onClear = viewModel::clearSlot,
                 pendingSuit = pendingSuit,
@@ -107,6 +121,7 @@ fun HandOddsScreen(viewModel: HandOddsViewModel = viewModel()) {
                 onActionPlayerSelected = viewModel::selectActionPlayer,
                 onRecordAction = viewModel::recordPlayerAction,
                 onAdvanceStreet = viewModel::advanceActionStreet,
+                onNextHand = viewModel::startNextHand,
                 onSlotSelected = viewModel::selectSlot,
                 onClear = viewModel::clearSlot,
                 pendingSuit = pendingSuit,
@@ -131,6 +146,7 @@ private fun PortraitDashboard(
     onActionPlayerSelected: (Int) -> Unit,
     onRecordAction: (PlayerActionType, Double?) -> Unit,
     onAdvanceStreet: () -> Unit,
+    onNextHand: () -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
     pendingSuit: Suit?,
@@ -147,6 +163,7 @@ private fun PortraitDashboard(
         onActionPlayerSelected = onActionPlayerSelected,
         onRecordAction = onRecordAction,
         onAdvanceStreet = onAdvanceStreet,
+        onNextHand = onNextHand,
         onSlotSelected = onSlotSelected,
         onClear = onClear,
         pendingSuit = pendingSuit,
@@ -166,6 +183,7 @@ private fun LandscapeDashboard(
     onActionPlayerSelected: (Int) -> Unit,
     onRecordAction: (PlayerActionType, Double?) -> Unit,
     onAdvanceStreet: () -> Unit,
+    onNextHand: () -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
     pendingSuit: Suit?,
@@ -182,6 +200,7 @@ private fun LandscapeDashboard(
         onActionPlayerSelected = onActionPlayerSelected,
         onRecordAction = onRecordAction,
         onAdvanceStreet = onAdvanceStreet,
+        onNextHand = onNextHand,
         onSlotSelected = onSlotSelected,
         onClear = onClear,
         pendingSuit = pendingSuit,
@@ -201,6 +220,7 @@ private fun FullTableDashboard(
     onActionPlayerSelected: (Int) -> Unit,
     onRecordAction: (PlayerActionType, Double?) -> Unit,
     onAdvanceStreet: () -> Unit,
+    onNextHand: () -> Unit,
     onSlotSelected: (TargetSlot) -> Unit,
     onClear: (TargetSlot) -> Unit,
     pendingSuit: Suit?,
@@ -249,7 +269,8 @@ private fun FullTableDashboard(
                     onPlayersChange = onPlayersChange,
                     onActionPlayerSelected = onActionPlayerSelected,
                     onRecordAction = onRecordAction,
-                    onAdvanceStreet = onAdvanceStreet
+                    onAdvanceStreet = onAdvanceStreet,
+                    onNextHand = onNextHand
                 )
             }
         }
@@ -456,7 +477,8 @@ private fun GameContextPanel(
     onPlayersChange: (Int) -> Unit,
     onActionPlayerSelected: (Int) -> Unit,
     onRecordAction: (PlayerActionType, Double?) -> Unit,
-    onAdvanceStreet: () -> Unit
+    onAdvanceStreet: () -> Unit,
+    onNextHand: () -> Unit
 ) {
     var showActionDialog by remember { mutableStateOf(false) }
     ElevatedCard(
@@ -478,6 +500,11 @@ private fun GameContextPanel(
             Text(
                 text = "${session.playersInHand}/${session.players.size} players remain",
                 style = MaterialTheme.typography.labelSmall
+            )
+            Text(
+                text = "Dealer: ${session.players.first { it.id == session.dealerPlayerId }.name} (D)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary
             )
 
             Text("Tap a player, then record an action", style = MaterialTheme.typography.labelMedium)
@@ -510,6 +537,9 @@ private fun GameContextPanel(
                 ) {
                     Text("Next street")
                 }
+            }
+            OutlinedButton(onClick = onNextHand, modifier = Modifier.fillMaxWidth()) {
+                Text("Next hand • move D clockwise")
             }
             if (session.actions.isEmpty()) {
                 Text("Actions update pot and remaining stacks automatically.", style = MaterialTheme.typography.labelSmall)
@@ -728,6 +758,7 @@ private fun PokerTableSurface(
                     PokerSeatChip(
                         player = player,
                         selected = session.selectedPlayerId == player.id,
+                        isDealer = session.dealerPlayerId == player.id,
                         modifier = Modifier
                             .align(placement.alignment)
                             .offset(x = placement.x, y = placement.y),
@@ -755,6 +786,7 @@ private fun PokerTableSurface(
                     PokerSeatChip(
                         player = hero,
                         selected = session.selectedPlayerId == hero.id,
+                        isDealer = session.dealerPlayerId == hero.id,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .offset(y = (-8).dp),
@@ -787,6 +819,7 @@ private val opponentSeatPlacements = listOf(
 private fun PokerSeatChip(
     player: com.txhmhelper.model.TablePlayer,
     selected: Boolean,
+    isDealer: Boolean,
     modifier: Modifier,
     onClick: () -> Unit
 ) {
@@ -795,38 +828,63 @@ private fun PokerSeatChip(
         !player.isInHand -> Color(0xFF8A8A8A)
         else -> Color.White.copy(alpha = 0.42f)
     }
-    Surface(
-        modifier = modifier
-            .width(112.dp)
-            .clickable(enabled = player.isInHand, onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = if (player.isInHand) PokerSeat else PokerSeat.copy(alpha = 0.45f),
-        border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
-        shadowElevation = if (selected) 6.dp else 2.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Box(modifier = modifier.width(112.dp)) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = player.isInHand, onClick = onClick),
+            shape = RoundedCornerShape(18.dp),
+            color = if (player.isInHand) PokerSeat else Color(0xFF4A3131),
+            border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
+            shadowElevation = if (selected) 6.dp else 2.dp
         ) {
-            Text(
-                text = player.name,
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = player.name,
+                    color = if (player.isInHand) Color.White else Color.White.copy(alpha = 0.55f),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (player.isInHand) {
+                        "${player.stackBb.formatBb()}  •  ${player.streetCommittedBb.formatBb()} in"
+                    } else {
+                        "FOLDED"
+                    },
+                    color = when {
+                        !player.isInHand -> Color(0xFFFF8A80)
+                        selected -> PokerGold
+                        else -> Color.White.copy(alpha = 0.78f)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (player.isInHand) FontWeight.Normal else FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (isDealer) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 8.dp, y = (-8).dp),
+                shape = RoundedCornerShape(50),
                 color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = if (player.isInHand) {
-                    "${player.stackBb.formatBb()}  •  ${player.streetCommittedBb.formatBb()} in"
-                } else {
-                    "folded"
-                },
-                color = if (selected) PokerGold else Color.White.copy(alpha = 0.78f),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    text = "D",
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    color = Color(0xFF182A25),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Black
+                )
+            }
         }
     }
 }
@@ -996,39 +1054,133 @@ private fun DialCardPicker(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.width(232.dp),
         shape = RoundedCornerShape(22.dp),
         color = Color(0xEE182A25),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.32f)),
         shadowElevation = 10.dp
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            RankDial(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("CARD DIAL", color = PokerGold, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Reset",
+                    color = Color.White.copy(alpha = if (pendingSuit != null || pendingRank != null) 1f else 0.45f),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .clickable(enabled = pendingSuit != null || pendingRank != null, onClick = onResetPicker)
+                        .padding(4.dp)
+                )
+            }
+            PokerCardDial(
                 selectedRank = pendingRank,
                 selectedSuit = pendingSuit,
                 usedCards = usedCards,
                 onRankSelected = onRankSelected,
-                modifier = Modifier.weight(1f)
-            )
-            SuitSlider(
-                selectedSuit = pendingSuit,
                 onSuitSelected = onSuitSelected,
-                modifier = Modifier.weight(1.2f)
+                modifier = Modifier.size(172.dp)
             )
-            Text(
-                text = "Reset",
-                color = Color.White.copy(alpha = if (pendingSuit != null || pendingRank != null) 1f else 0.45f),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier
-                    .clickable(enabled = pendingSuit != null || pendingRank != null, onClick = onResetPicker)
-                    .padding(6.dp)
-            )
+            Text("Outer ring: rank  •  Inner ring: suit", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
         }
     }
+}
+
+@Composable
+private fun PokerCardDial(
+    selectedRank: Rank?,
+    selectedSuit: Suit?,
+    usedCards: Set<Card>,
+    onRankSelected: (Rank) -> Unit,
+    onSuitSelected: (Suit) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var dialSize by remember { mutableStateOf(IntSize.Zero) }
+    fun selectAt(pointX: Float, pointY: Float) {
+        if (dialSize.width == 0 || dialSize.height == 0) return
+        val centerX = dialSize.width / 2f
+        val centerY = dialSize.height / 2f
+        val radius = hypot(pointX - centerX, pointY - centerY)
+        val outerRadius = min(dialSize.width, dialSize.height) / 2f
+        val angle = (atan2((pointY - centerY).toDouble(), (pointX - centerX).toDouble()) + PI / 2 + PI * 2) % (PI * 2)
+        if (radius >= outerRadius * 0.57f) {
+            val index = (angle / (PI * 2 / Rank.entries.size)).roundToInt() % Rank.entries.size
+            val rank = Rank.entries[index]
+            val unavailable = selectedSuit?.let { suit -> usedCards.any { it.rank == rank && it.suit == suit } } == true
+            if (!unavailable) onRankSelected(rank)
+        } else if (radius >= outerRadius * 0.22f) {
+            val index = (angle / (PI * 2 / Suit.entries.size)).roundToInt() % Suit.entries.size
+            val suit = Suit.entries[index]
+            val unavailable = selectedRank?.let { rank -> usedCards.any { it.rank == rank && it.suit == suit } } == true
+            if (!unavailable) onSuitSelected(suit)
+        }
+    }
+    Canvas(
+        modifier = modifier
+            .pointerInput(selectedRank, selectedSuit, usedCards, dialSize) {
+                detectDragGestures(
+                    onDragStart = { offset -> selectAt(offset.x, offset.y) },
+                    onDrag = { change, _ -> selectAt(change.position.x, change.position.y) }
+                )
+            }
+            .onSizeChanged { dialSize = it }
+    ) {
+        val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+        val outerRadius = size.minDimension * 0.45f
+        val innerRadius = outerRadius * 0.46f
+        val selectedRankIndex = (selectedRank ?: Rank.A).ordinal
+        val selectedSuitIndex = (selectedSuit ?: Suit.SPADES).ordinal
+        drawCircle(Color(0xFF173B31), outerRadius, center)
+        drawCircle(PokerGold.copy(alpha = 0.76f), outerRadius, center, style = androidx.compose.ui.graphics.drawscope.Stroke(2.5f))
+        drawCircle(Color(0xFF0D5B3B), innerRadius, center)
+        drawCircle(Color.White.copy(alpha = 0.38f), innerRadius, center, style = androidx.compose.ui.graphics.drawscope.Stroke(1.5f))
+
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.CENTER
+            textSize = size.minDimension * 0.105f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        Rank.entries.forEachIndexed { index, rank ->
+            val point = dialPoint(center, outerRadius * 0.80f, index, Rank.entries.size)
+            val selected = index == selectedRankIndex
+            drawCircle(if (selected) PokerGold else Color.White.copy(alpha = 0.18f), if (selected) 14f else 9f, point)
+            labelPaint.color = if (selected) Color(0xFF15241F).toArgb() else Color.White.toArgb()
+            drawContext.canvas.nativeCanvas.drawText(rank.label, point.x, point.y - (labelPaint.ascent() + labelPaint.descent()) / 2f, labelPaint)
+        }
+        Suit.entries.forEachIndexed { index, suit ->
+            val point = dialPoint(center, innerRadius * 0.70f, index, Suit.entries.size)
+            val selected = index == selectedSuitIndex
+            val suitColor = if (suit == Suit.HEARTS || suit == Suit.DIAMONDS) Color(0xFFFF6B6B) else Color.White
+            drawCircle(if (selected) PokerGold.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.16f), if (selected) 15f else 11f, point)
+            labelPaint.color = if (selected) Color(0xFF15241F).toArgb() else suitColor.toArgb()
+            drawContext.canvas.nativeCanvas.drawText(suitSymbol(suit), point.x, point.y - (labelPaint.ascent() + labelPaint.descent()) / 2f, labelPaint)
+        }
+        val rankPointer = dialPoint(center, outerRadius * 0.65f, selectedRankIndex, Rank.entries.size)
+        val suitPointer = dialPoint(center, innerRadius * 0.58f, selectedSuitIndex, Suit.entries.size)
+        drawLine(PokerGold, center, rankPointer, strokeWidth = 4f)
+        drawLine(Color.White, center, suitPointer, strokeWidth = 3f)
+        drawCircle(PokerGold, 7f, center)
+    }
+}
+
+private fun dialPoint(
+    center: androidx.compose.ui.geometry.Offset,
+    radius: Float,
+    index: Int,
+    count: Int
+): androidx.compose.ui.geometry.Offset {
+    val angle = -PI / 2 + index * (PI * 2 / count)
+    return androidx.compose.ui.geometry.Offset(
+        x = center.x + cos(angle).toFloat() * radius,
+        y = center.y + sin(angle).toFloat() * radius
+    )
 }
 
 @Composable

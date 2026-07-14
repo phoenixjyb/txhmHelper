@@ -51,6 +51,7 @@ data class GameSession(
     val players: List<TablePlayer> = createTablePlayers(2),
     val potBb: Double = 0.0,
     val actions: List<RecordedAction> = emptyList(),
+    val dealerPlayerId: Int = 0,
     val selectedPlayerId: Int = 0
 ) {
     val playersInHand: Int get() = players.count { it.isInHand }
@@ -128,7 +129,22 @@ data class GameSession(
         return copy(
             street = nextStreet,
             players = players.map { it.copy(streetCommittedBb = 0.0) },
-            selectedPlayerId = active.first().id
+            selectedPlayerId = nextClockwiseActive(players, dealerPlayerId).id
+        )
+    }
+
+    fun startNextHand(): GameSession {
+        val resetPlayers = players.map { player ->
+            player.copy(streetCommittedBb = 0.0, isInHand = player.stackBb > ACTION_EPSILON)
+        }
+        val nextDealer = nextClockwiseActive(resetPlayers, dealerPlayerId).id
+        return copy(
+            street = GameStreet.PREFLOP,
+            players = resetPlayers,
+            potBb = 0.0,
+            actions = emptyList(),
+            dealerPlayerId = nextDealer,
+            selectedPlayerId = nextClockwiseActive(resetPlayers, nextDealer).id
         )
     }
 
@@ -141,10 +157,22 @@ data class GameSession(
 
         private fun createTablePlayers(playerCount: Int, stackBb: Double = 100.0): List<TablePlayer> =
             List(playerCount) { index ->
-                TablePlayer(index, if (index == 0) "Hero" else "Player ${index + 1}", stackBb)
+                TablePlayer(index, pokerNames[index], stackBb)
             }
     }
 }
+
+private val pokerNames = listOf(
+    "Hero",
+    "River",
+    "Nova",
+    "Atlas",
+    "Jade",
+    "Blaze",
+    "Luna",
+    "Maverick",
+    "Sage"
+)
 
 private fun requireAmount(amount: Double?, player: TablePlayer, minimumExclusive: Double): Double {
     require(amount != null && amount.isFinite()) { "Enter an amount in BB." }
@@ -162,6 +190,15 @@ private fun nextPlayerForAction(players: List<TablePlayer>, afterPlayerId: Int):
             return candidate
         }
     }
+    for (offset in 1..players.size) {
+        val candidate = players[(start + offset) % players.size]
+        if (candidate.isInHand) return candidate
+    }
+    return players.first { it.id == afterPlayerId }
+}
+
+private fun nextClockwiseActive(players: List<TablePlayer>, afterPlayerId: Int): TablePlayer {
+    val start = players.indexOfFirst { it.id == afterPlayerId }
     for (offset in 1..players.size) {
         val candidate = players[(start + offset) % players.size]
         if (candidate.isInHand) return candidate

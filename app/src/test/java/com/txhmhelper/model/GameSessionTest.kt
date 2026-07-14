@@ -13,7 +13,7 @@ class GameSessionTest {
 
         assertEquals(6, session.players.size)
         assertEquals("Hero", session.players.first().name)
-        assertEquals("Player 6", session.players.last().name)
+        assertEquals("Blaze", session.players.last().name)
         assertEquals(100.0, session.players.first().stackBb, 0.0)
     }
 
@@ -56,7 +56,22 @@ class GameSessionTest {
         assertEquals(GameStreet.FLOP, session.street)
         assertEquals(8.0, session.potBb, 0.0)
         assertTrue(session.players.all { it.streetCommittedBb == 0.0 })
-        assertEquals(0, session.selectedPlayerId)
+        assertEquals(1, session.selectedPlayerId)
+    }
+
+    @Test
+    fun nextHandMovesDealerClockwiseAndRestoresFoldedPlayers() {
+        val session = GameSession.create(3)
+            .selectPlayer(1)
+            .recordAction(PlayerActionType.FOLD)
+            .startNextHand()
+
+        assertEquals(1, session.dealerPlayerId)
+        assertEquals(2, session.selectedPlayerId)
+        assertEquals(GameStreet.PREFLOP, session.street)
+        assertEquals(0.0, session.potBb, 0.0)
+        assertTrue(session.players.all { it.isInHand })
+        assertTrue(session.actions.isEmpty())
     }
 
     @Test(expected = IllegalArgumentException::class)

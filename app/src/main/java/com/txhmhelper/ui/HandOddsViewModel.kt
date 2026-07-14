@@ -181,6 +181,24 @@ class HandOddsViewModel(
         scheduleCompute()
     }
 
+    fun startNextHand() {
+        computeJob?.cancel()
+        gtoJob?.cancel()
+        _uiState.update { state ->
+            state.copy(
+                boardState = BoardState(),
+                targetSlot = TargetSlot.Hole(0),
+                odds = null,
+                equity = null,
+                gameSession = state.gameSession.startNextHand(),
+                recommendation = null,
+                gtoAdvice = null,
+                gtoStatus = GtoStatus.IDLE,
+                error = null
+            )
+        }
+    }
+
     private fun scheduleCompute() {
         val current = _uiState.value
         if (current.boardState.hole.any { it == null }) return
