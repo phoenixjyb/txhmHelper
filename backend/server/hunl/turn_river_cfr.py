@@ -14,9 +14,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
-from solver_cfr import CardValue, card_to_int, parse_cards, winner
+from solver_cfr import CardValue, parse_cards, winner
 
 from .abstraction import public_state_key
+from .buckets import private_hand_bucket
 from .game import Action, GameConfig, PublicState, Street, advance_street, apply_action, initial_postflop_state, legal_actions
 
 ARTIFACT_VERSION = "hunl_turn_river_external_sampling_cfr_plus_v1"
@@ -81,6 +82,8 @@ class TurnRiverTrainingConfig:
     )
     artifact_version: str = ARTIFACT_VERSION
     use_gpu_terminal_evaluator: bool = False
+    use_board_texture_buckets: bool = False
+    use_private_hand_buckets: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,8 @@ class FlopTurnRiverTrainingConfig:
     )
     artifact_version: str = FLOP_TURN_RIVER_ARTIFACT_VERSION
     use_gpu_terminal_evaluator: bool = False
+    use_board_texture_buckets: bool = True
+    use_private_hand_buckets: bool = True
 
 
 @dataclass(frozen=True)
@@ -220,6 +225,8 @@ class TurnRiverCfrPlus:
             "training_config": {
                 "game": asdict(self.config.game),
                 "use_gpu_terminal_evaluator": self.config.use_gpu_terminal_evaluator,
+                "use_board_texture_buckets": self.config.use_board_texture_buckets,
+                "use_private_hand_buckets": self.config.use_private_hand_buckets,
             },
             "metadata": metadata or {},
             "total_iterations": self.total_iterations,
@@ -352,9 +359,18 @@ class TurnRiverCfrPlus:
         return -(state.pot_bb / 2.0 + state.street_committed_bb[0] - rake / 2.0)
 
     def _info_key(self, state: PublicState, private_cards: Iterable[CardValue], actions: Sequence[Action]) -> str:
-        private_key = ",".join(sorted(_card_label(card) for card in private_cards))
+        private_labels = tuple(_card_label(card) for card in private_cards)
+        private_key = (
+            private_hand_bucket(private_labels, state.board)
+            if self.config.use_private_hand_buckets
+            else ",".join(sorted(private_labels))
+        )
         action_key = ",".join(action.label for action in actions)
-        return f"P{state.to_act}|{private_key}|{public_state_key(state, self.config.artifact_version)}|actions={action_key}"
+        return (
+            f"P{state.to_act}|{private_key}|"
+            f"{public_state_key(state, self.config.artifact_version, self.config.use_board_texture_buckets)}|"
+            f"actions={action_key}"
+        )
 
 
 def _cards_tensor(hole_cards: Sequence[CardValue], board: Sequence[CardValue]) -> List[List[int]]:

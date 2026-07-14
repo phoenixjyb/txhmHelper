@@ -20,7 +20,7 @@ without producing a credible general strategy artifact.
 
 ## Next implementation gate
 
-Add versioned abstractions for:
+Implement and validate versioned abstractions for:
 
 1. Canonical flop/turn board texture buckets.
 2. Private hand-strength/draw buckets conditional on the public board.

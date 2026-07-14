@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Iterable, Sequence
 
 from .game import PublicState
+from .buckets import board_texture_bucket
 
 RANK_ORDER = "23456789TJQKA"
 SUIT_SYMBOLS = "abcd"
@@ -33,14 +34,18 @@ def bucket(value: float, boundaries: Sequence[float]) -> float:
     return boundaries[-1]
 
 
-def public_state_key(state: PublicState, abstraction_version: str) -> str:
+def public_state_key(
+    state: PublicState,
+    abstraction_version: str,
+    use_board_texture_buckets: bool = False,
+) -> str:
     history = ",".join(action.label for action in state.history) or "root"
     stack_key = ",".join(str(bucket(stack, STACK_BUCKETS_BB)) for stack in state.stacks_bb)
     return "|".join(
         (
             abstraction_version,
             state.street.value,
-            canonical_board(state.board),
+            board_texture_bucket(state.board) if use_board_texture_buckets else canonical_board(state.board),
             f"pot={bucket(state.pot_bb, POT_BUCKETS_BB)}",
             f"stacks={stack_key}",
             f"to_act={state.to_act}",
