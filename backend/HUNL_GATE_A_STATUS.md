@@ -23,9 +23,29 @@ Environment: RTX 4090 server, CUDA terminal evaluator, fixed spot
 | --- | ---: | ---: | ---: | ---: |
 | 1 | 250 | 30,156 | 11 MB | n/a |
 | 2 | 500 | 55,258 | 19 MB | 0.126115 |
+| 3 | 1,500 | 146,825 | 49 MB | 0.016653 |
+| 4 | 3,250 | 290,273 | 97 MB | 0.004535 |
 
-The second checkpoint moved too much to call converged. This artifact must not
-be served through the phone API as GTO advice.
+At 2,250, 2,500, 2,750, 3,000, and 3,250 total iterations, the primary spot
+recorded root-policy deltas below 0.01. This passes the local root-stability
+check for that one spot only. It is still not an API-serving artifact and is not
+a formal exploitability result.
+
+## Held-out spot
+
+The held-out spot (`Qh,9h` on `Js,7d,3c,2s`, same pot and stack) exercised a
+five-card canonical-board path that exposed and then fixed a four-suit mapping
+bug. Its CUDA run is valid, but remains unstable at 1,000 iterations:
+
+| Total iterations | Information sets | Artifact size | Root-policy max delta |
+| ---: | ---: | ---: | ---: |
+| 250 | 28,126 | 10 MB | n/a |
+| 500 | 51,868 | 18 MB | 0.103703 |
+| 750 | 75,134 | 26 MB | 0.058308 |
+| 1,000 | 97,555 | 33 MB | 0.028363 |
+
+Do not promote Gate A until the held-out spot has the same five-checkpoint
+stability evidence and an independently restarted training run is compared.
 
 ## Next acceptance gate
 
@@ -40,6 +60,7 @@ cd backend/server
   --cuda-terminal-evaluator --seed 20260716
 ```
 
-Promotion needs at least five successive checkpoint deltas below 0.01 on this
-spot, a separate-seed rerun, and a held-out spot comparison. Root stability is
-only a necessary operational gate, not a formal exploitability proof.
+Promotion needs at least five successive checkpoint deltas below 0.01 on the
+held-out spot, an independently restarted training run for the primary spot,
+and a held-out strategy comparison. Root stability is only a necessary
+operational gate, not a formal exploitability proof.
