@@ -4,7 +4,13 @@ import unittest
 from pathlib import Path
 
 from hunl.game import GameConfig
-from hunl.turn_river_cfr import TurnRiverCfrPlus, TurnRiverTrainingConfig
+from hunl.turn_river_cfr import (
+    FLOP_TURN_RIVER_ARTIFACT_VERSION,
+    FlopTurnRiverCfrPlus,
+    FlopTurnRiverTrainingConfig,
+    TurnRiverCfrPlus,
+    TurnRiverTrainingConfig,
+)
 
 try:
     import torch
@@ -62,6 +68,37 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
         self.assertGreaterEqual(result.node_count, before)
         self.assertEqual(16, result.total_iterations)
         self.assertAlmostEqual(1.0, sum(result.strategy.values()), places=8)
+
+    def test_flop_gate_traverses_flop_turn_and_river_information_sets(self):
+        config = FlopTurnRiverTrainingConfig(
+            game=GameConfig(
+                rake_pct=0.0,
+                postflop_bet_sizes=(0.5,),
+                postflop_raise_sizes=(1.0,),
+                max_raises_per_street=1,
+            )
+        )
+        trainer = FlopTurnRiverCfrPlus(config)
+        result = trainer.train_flop(
+            hero_hand=["As", "Kd"],
+            flop_board=["Jh", "Td", "2c"],
+            pot_bb=10.0,
+            stacks_bb=(90.0, 90.0),
+            hero_position="oop",
+            iterations=3,
+            rng=random.Random(77),
+        )
+
+        self.assertEqual(FLOP_TURN_RIVER_ARTIFACT_VERSION, result.artifact_version)
+        self.assertAlmostEqual(1.0, sum(result.strategy.values()), places=8)
+        self.assertTrue(any("|flop|" in key for key in trainer.nodes))
+        self.assertTrue(any("|turn|" in key for key in trainer.nodes))
+        self.assertTrue(any("|river|" in key for key in trainer.nodes))
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "flop.json"
+            trainer.save_artifact(artifact)
+            restored = FlopTurnRiverCfrPlus.load_artifact(artifact)
+        self.assertEqual(len(trainer.nodes), len(restored.nodes))
 
     @unittest.skipUnless(torch is not None and torch.cuda.is_available(), "CUDA PyTorch is not installed")
     def test_gpu_terminal_samples_match_cpu_strategy(self):

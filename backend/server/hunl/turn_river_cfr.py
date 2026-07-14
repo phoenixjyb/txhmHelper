@@ -20,6 +20,7 @@ from .abstraction import public_state_key
 from .game import Action, GameConfig, PublicState, Street, advance_street, apply_action, initial_postflop_state, legal_actions
 
 ARTIFACT_VERSION = "hunl_turn_river_external_sampling_cfr_plus_v1"
+FLOP_TURN_RIVER_ARTIFACT_VERSION = "hunl_flop_turn_river_external_sampling_cfr_plus_v1"
 
 
 @dataclass
@@ -83,6 +84,21 @@ class TurnRiverTrainingConfig:
 
 
 @dataclass(frozen=True)
+class FlopTurnRiverTrainingConfig:
+    """Gate B configuration; kept separate so flop artifacts cannot mix with Gate A."""
+
+    game: GameConfig = field(
+        default_factory=lambda: GameConfig(
+            postflop_bet_sizes=(0.33, 0.75, 1.0),
+            postflop_raise_sizes=(0.75, 1.5),
+            max_raises_per_street=1,
+        )
+    )
+    artifact_version: str = FLOP_TURN_RIVER_ARTIFACT_VERSION
+    use_gpu_terminal_evaluator: bool = False
+
+
+@dataclass(frozen=True)
 class TurnRiverResult:
     strategy: Dict[str, float]
     iterations: int
@@ -111,10 +127,41 @@ class TurnRiverCfrPlus:
         iterations: int,
         rng: random.Random | None = None,
     ) -> TurnRiverResult:
+        return self._train_from_street(
+            hero_hand, turn_board, pot_bb, stacks_bb, hero_position, iterations, Street.TURN, rng
+        )
+
+    def train_flop(
+        self,
+        hero_hand: Sequence[str],
+        flop_board: Sequence[str],
+        pot_bb: float,
+        stacks_bb: Tuple[float, float],
+        hero_position: str,
+        iterations: int,
+        rng: random.Random | None = None,
+    ) -> TurnRiverResult:
+        """Gate B entry point: traverse flop, turn, and river decisions."""
+        return self._train_from_street(
+            hero_hand, flop_board, pot_bb, stacks_bb, hero_position, iterations, Street.FLOP, rng
+        )
+
+    def _train_from_street(
+        self,
+        hero_hand: Sequence[str],
+        board_cards: Sequence[str],
+        pot_bb: float,
+        stacks_bb: Tuple[float, float],
+        hero_position: str,
+        iterations: int,
+        starting_street: Street,
+        rng: random.Random | None,
+    ) -> TurnRiverResult:
         hero = parse_cards(hero_hand)
-        board = parse_cards(turn_board)
-        if len(hero) != 2 or len(board) != 4:
-            raise ValueError("Turn/river training requires two hole cards and four turn-board cards.")
+        board = parse_cards(board_cards)
+        expected_board_cards = {Street.FLOP: 3, Street.TURN: 4}
+        if starting_street not in expected_board_cards or len(hero) != 2 or len(board) != expected_board_cards[starting_street]:
+            raise ValueError("Training requires two hole cards and a board matching the requested starting street.")
         if set(hero) & set(board):
             raise ValueError("Hero cards and board cards must not overlap.")
         if iterations < 1:
@@ -123,7 +170,7 @@ class TurnRiverCfrPlus:
             raise ValueError("hero_position must be 'oop' or 'ip'.")
 
         first_to_act = 0 if hero_position == "oop" else 1
-        root = initial_postflop_state(Street.TURN, turn_board, pot_bb, stacks_bb, first_to_act)
+        root = initial_postflop_state(starting_street, board_cards, pot_bb, stacks_bb, first_to_act)
         if root.to_act != 0:
             raise ValueError("Gate A currently returns a root strategy only when Hero is OOP on the turn.")
 
@@ -134,19 +181,20 @@ class TurnRiverCfrPlus:
             for suit in range(4)
             if (rank, suit) not in set(hero) | set(board)
         ]
+        future_cards = 5 - len(board)
         sampled_deals = []
         for _ in range(iterations):
             villain = generator.sample(remaining, 2)
-            river = generator.choice([card for card in remaining if card not in villain])
-            sampled_deals.append((villain, river))
+            runout = tuple(generator.sample([card for card in remaining if card not in villain], future_cards))
+            sampled_deals.append((villain, runout))
         outcomes = self._showdown_outcomes(hero, board, sampled_deals)
 
-        for (villain, river), outcome in zip(sampled_deals, outcomes):
+        for (villain, runout), outcome in zip(sampled_deals, outcomes):
             self._cfr(
                 state=root,
                 hero=hero,
                 villain=villain,
-                river=river,
+                runout=runout,
                 showdown_outcome=outcome,
                 hero_reach=1.0,
                 villain_reach=1.0,
@@ -217,7 +265,7 @@ class TurnRiverCfrPlus:
         state: PublicState,
         hero: Sequence[CardValue],
         villain: Sequence[CardValue],
-        river: CardValue,
+        runout: Sequence[CardValue],
         showdown_outcome: int,
         hero_reach: float,
         villain_reach: float,
@@ -225,12 +273,16 @@ class TurnRiverCfrPlus:
         if state.terminal:
             return self._terminal_utility(state, showdown_outcome)
         if state.street_complete:
+            if state.street == Street.FLOP:
+                return self._cfr(
+                    advance_street(state, _card_label(runout[0])), hero, villain, runout, showdown_outcome, hero_reach, villain_reach
+                )
             if state.street == Street.TURN:
                 return self._cfr(
-                    advance_street(state, _card_label(river)), hero, villain, river, showdown_outcome, hero_reach, villain_reach
+                    advance_street(state, _card_label(runout[-1])), hero, villain, runout, showdown_outcome, hero_reach, villain_reach
                 )
             return self._cfr(
-                advance_street(state, None), hero, villain, river, showdown_outcome, hero_reach, villain_reach
+                advance_street(state, None), hero, villain, runout, showdown_outcome, hero_reach, villain_reach
             )
 
         player = state.to_act
@@ -248,9 +300,9 @@ class TurnRiverCfrPlus:
         for label, action in action_map.items():
             child = apply_action(state, action, self.config.game)
             if player == 0:
-                value = self._cfr(child, hero, villain, river, showdown_outcome, hero_reach * strategy[label], villain_reach)
+                value = self._cfr(child, hero, villain, runout, showdown_outcome, hero_reach * strategy[label], villain_reach)
             else:
-                value = self._cfr(child, hero, villain, river, showdown_outcome, hero_reach, villain_reach * strategy[label])
+                value = self._cfr(child, hero, villain, runout, showdown_outcome, hero_reach, villain_reach * strategy[label])
             action_values[label] = value
             node_value += strategy[label] * value
 
@@ -264,10 +316,10 @@ class TurnRiverCfrPlus:
         self,
         hero: Sequence[CardValue],
         board: Sequence[CardValue],
-        sampled_deals: Sequence[Tuple[Sequence[CardValue], CardValue]],
+        sampled_deals: Sequence[Tuple[Sequence[CardValue], Sequence[CardValue]]],
     ) -> List[int]:
         if not self.config.use_gpu_terminal_evaluator:
-            return [winner(hero, villain, list(board) + [river]) for villain, river in sampled_deals]
+            return [winner(hero, villain, list(board) + list(runout)) for villain, runout in sampled_deals]
 
         from .gpu import probe_gpu
         from .torch_evaluator import showdown_equity
@@ -278,10 +330,10 @@ class TurnRiverCfrPlus:
         import torch
 
         hero_cards = torch.tensor(
-            [_cards_tensor(hero, list(board) + [river]) for _, river in sampled_deals], device="cuda", dtype=torch.long
+            [_cards_tensor(hero, list(board) + list(runout)) for _, runout in sampled_deals], device="cuda", dtype=torch.long
         )
         villain_cards = torch.tensor(
-            [_cards_tensor(villain, list(board) + [river]) for villain, river in sampled_deals], device="cuda", dtype=torch.long
+            [_cards_tensor(villain, list(board) + list(runout)) for villain, runout in sampled_deals], device="cuda", dtype=torch.long
         )
         equities = showdown_equity(hero_cards, villain_cards).cpu().tolist()
         return [1 if equity == 1.0 else -1 if equity == 0.0 else 0 for equity in equities]
@@ -313,3 +365,18 @@ def _card_label(card: CardValue) -> str:
     ranks = "23456789TJQKA"
     suits = "cdhs"
     return f"{ranks[card[0]]}{suits[card[1]]}"
+
+
+class FlopTurnRiverCfrPlus(TurnRiverCfrPlus):
+    """Semantic Gate B trainer using the same tested multi-street CFR+ core."""
+
+    def __init__(self, config: FlopTurnRiverTrainingConfig | None = None) -> None:
+        super().__init__(config or FlopTurnRiverTrainingConfig())
+
+    @classmethod
+    def load_artifact(
+        cls,
+        path: str | Path,
+        config: FlopTurnRiverTrainingConfig | None = None,
+    ) -> "FlopTurnRiverCfrPlus":
+        return super().load_artifact(path, config or FlopTurnRiverTrainingConfig())
