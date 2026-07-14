@@ -2,6 +2,7 @@ import random
 import unittest
 
 from hunl.torch_evaluator import evaluate_seven, showdown_equity
+from hunl.gpu import terminal_evaluator_benchmark
 from solver_cfr import best_rank_seven
 
 try:
@@ -39,6 +40,13 @@ class TorchEvaluatorTest(unittest.TestCase):
                 expected = (reference_scores[left] > reference_scores[right]) - (reference_scores[left] < reference_scores[right])
                 actual = (gpu_scores[left] > gpu_scores[right]) - (gpu_scores[left] < gpu_scores[right])
                 self.assertEqual(expected, actual, msg=f"rank ordering diverged for hands {left} and {right}")
+
+    def test_cuda_terminal_evaluator_benchmark(self):
+        result = terminal_evaluator_benchmark(batch_size=512)
+
+        self.assertEqual("batched_seven_card_terminal_evaluator", result["benchmark"])
+        self.assertGreater(result["elapsed_ms"], 0)
+        self.assertGreater(result["hands_per_second"], 0)
 
 
 if __name__ == "__main__":
