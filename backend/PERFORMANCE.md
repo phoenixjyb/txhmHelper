@@ -50,3 +50,15 @@ the dominant latency source and GPU memory remains comfortably below capacity.
 The larger speed step is serving validated offline CFR+ artifacts for common
 abstracted spots. Do not promote a Gate B artifact to runtime serving until it
 passes the held-out stability and root-policy acceptance criteria.
+
+## Initial live baseline (2026-07-14)
+
+On the deployed NVIDIA 4090 server, a heads-up flop request with 3,000
+iterations and the CUDA terminal evaluator measured:
+
+- cold end-to-end request: `1.009 s` (`0.793 s` measured solver time);
+- identical request while the service remained up: `14 ms` in-memory reuse;
+- identical request after a service restart: `98 ms` persistent-cache reuse.
+
+This is one representative spot, not a p95 target. Use the promotion gate
+above before changing worker count or publishing a latency claim.
