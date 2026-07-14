@@ -76,28 +76,50 @@ measurement of the final bucket quality. It confirms the harness can reject an
 unsafe candidate. The protocol now requires exact and bucketed runs to satisfy
 within-seed stability before the held-out numbers are used for promotion.
 
+## Paired within-seed stability pilot — 2026-07-14
+
+The paired checkpoint runner preserves matched chance samples across exact and
+bucketed artifacts, writes their root deltas at every checkpoint, and enforces
+artifact configuration matching on resume.
+
+For the original fixed spot (`As,Kd` on `Jh,Td,2c`, 10 bb pot, 90 bb effective,
+Hero OOP, seed `20260719`), the RTX 4090 run stopped at 800 iterations after
+passing the within-seed gate. The last four exact/bucketed root deltas were:
+
+| Total iterations | Exact delta | Bucketed delta | Cross-model root gap |
+| ---: | ---: | ---: | ---: |
+| 725 | 0.86% | 0.27% | 14.68% |
+| 750 | 0.74% | 0.20% | 15.44% |
+| 775 | 0.97% | 0.19% | 16.34% |
+| 800 | 0.81% | 0.18% | 17.09% |
+
+The final exact artifact contains 266,347 nodes / 90 MB; bucketed contains
+45,042 nodes / 19 MB. This validates checkpointing and confirms a substantial
+memory reduction, but the 17.09% matched root-policy gap means the bucketed
+model is **not accepted**. This result passes only the within-seed stability
+prerequisite, not the held-out abstraction or cross-seed gates.
+
 ## Next research gate
 
-The paired checkpoint runner is now implemented. It preserves matched chance
-samples across exact and bucketed artifacts, writes their root deltas at every
-checkpoint, and enforces artifact configuration matching on resume.
+Run paired stability jobs for every held-out case/seed, then compare each
+stable exact artifact against its stable bucketed counterpart. Do not reuse the
+25-iteration held-out diagnostic as an abstraction-quality measurement.
 
-First paired server baseline:
+The one-spot paired command is:
 
 ```bash
 cd /home/converge/data/yanbo/txhmHelper/backend/server
 .venv/bin/python train_gate_b_paired.py \
   --hero As,Kd --board Jh,Td,2c --pot-bb 10 --stack-bb 90 \
-  --iterations 100 --checkpoint-interval 25 \
+  --iterations 800 --checkpoint-interval 25 --stop-on-stable \
   --exact-artifact ../artifacts/gate-b-exact-paired-20260714.json \
   --bucketed-artifact ../artifacts/gate-b-bucketed-paired-20260714.json \
   --report ../artifacts/gate-b-paired-20260714.json \
   --cuda-terminal-evaluator --seed 20260719
 ```
 
-Then re-run the held-out report at a matched stable checkpoint depth. Only then
-decide whether bucket features need refinement or larger bucketed pilots are
-justified.
+Only after stable held-out comparison can we decide whether bucket features
+need refinement or larger bucketed pilots are justified.
 
 Gate B remains offline research infrastructure. The deployed `/v1/solve`
 endpoint remains the bounded one-street CFR+ service; it does not read these
