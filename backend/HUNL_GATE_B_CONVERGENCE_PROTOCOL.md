@@ -82,6 +82,12 @@ artifact directory. It reports every exact and bucketed model pair separately;
 the exact reference must satisfy the gate too, otherwise an exact-vs-bucketed
 difference still contains unresolved training noise.
 
+For a cross-seed convergence pilot, pass `--full-budget` to
+`run_gate_b_heldout_batch.py`. The default runner stops once it has established
+the within-seed prerequisite; full-budget mode deliberately continues to the
+requested iteration cap so an early low checkpoint delta cannot masquerade as
+repeatability.
+
 ### 5. Resource and stop rules
 
 - Stop before an artifact exceeds 2 GB or a checkpoint exceeds 30 minutes.

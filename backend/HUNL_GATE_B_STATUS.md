@@ -118,7 +118,25 @@ was 7.94%, and the worst case was 22.59%. The median misses the 5% research
 target and the dry-broadway case breaches the 15% hard-review stop. Therefore
 the v1 bucketed artifact is **rejected** and remains offline research data.
 
-## Next research gate — v2 rank-profile bucket
+## Completed v2 rank-profile series — 2026-07-15
+
+The v2 rank-profile bucket reduced the 12-pair median maximum root-action
+error from 6.62% to 4.42%, and the mean from 7.94% to 5.58%. However, its worst
+held-out pair was still 17.76% (dry broadway), exceeding the 15% hard-review
+limit, so v2 is **not accepted** either.
+
+The new cross-seed report explains why it would be premature to revise the
+bucket again: the exact reference itself was not repeatable at the early-stop
+depth. Its worst pairwise root-action differences were 11.76% on dry broadway,
+7.17% on monotone high-card, and 5.79% on wet connected; only paired trips
+passed the 2.5% cross-seed requirement. The observed exact-vs-bucketed gaps
+therefore still include material training noise.
+
+## Next research gate — v2 full-budget convergence pilot
+
+Keep the v2 abstraction fixed and run the three dry-broadway seeds to a deeper
+iteration budget without the default early-stability stop. This isolates the
+cross-seed question before another abstraction revision:
 
 The v2 bucket adds the unordered hole-card rank pattern to each private
 information set while preserving suit/draw and board-texture abstraction. It
@@ -132,9 +150,10 @@ three seeds and writes `batch-summary.json` after every job:
 cd /home/converge/data/yanbo/txhmHelper/backend/server
 .venv/bin/python run_gate_b_heldout_batch.py \
   --seeds 20260716,20260717,20260718 \
-  --output-dir ../artifacts/gate-b-v2-rank-profile-20260714 \
-  --iterations-per-job 800 --checkpoint-interval 25 \
-  --job-timeout-seconds 1800 --max-artifact-mb 2048 \
+  --output-dir ../artifacts/gate-b-v2-rank-profile-deep-20260715 \
+  --iterations-per-job 3000 --checkpoint-interval 50 \
+  --job-timeout-seconds 3600 --max-artifact-mb 2048 --max-jobs 3 \
+  --full-budget \
   --cuda-terminal-evaluator
 ```
 
@@ -143,10 +162,14 @@ As stable pairs arrive, compare them without retraining:
 ```bash
 .venv/bin/python compare_gate_b_stable_artifacts.py \
   --seeds 20260716,20260717,20260718 \
-  --input-dir ../artifacts/gate-b-v2-rank-profile-20260714 \
-  --output ../artifacts/gate-b-v2-rank-profile-20260714/stable-comparison.json \
+  --input-dir ../artifacts/gate-b-v2-rank-profile-deep-20260715 \
+  --output ../artifacts/gate-b-v2-rank-profile-deep-20260715/stable-comparison.json \
   --cuda-terminal-evaluator
 ```
+
+Then run `compare_gate_b_cross_seed_artifacts.py` against the same deep
+directory. Only if the exact reference clears 2.5% pairwise should a remaining
+exact-vs-bucketed gap be attributed to the abstraction.
 
 Only after v2 passes the held-out and cross-seed gates can we design the
 artifact-selection API. It will still be a bounded postflop research solver,

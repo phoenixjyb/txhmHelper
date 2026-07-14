@@ -23,6 +23,11 @@ def main() -> None:
     parser.add_argument("--job-timeout-seconds", type=int, default=1800)
     parser.add_argument("--max-artifact-mb", type=int, default=2048)
     parser.add_argument("--max-jobs", type=int, default=0, help="0 runs every planned job")
+    parser.add_argument(
+        "--full-budget",
+        action="store_true",
+        help="Run every requested iteration even after within-seed stability; use for cross-seed convergence pilots.",
+    )
     parser.add_argument("--cuda-terminal-evaluator", action="store_true")
     arguments = parser.parse_args()
     if min(arguments.iterations_per_job, arguments.checkpoint_interval, arguments.job_timeout_seconds, arguments.max_artifact_mb) < 1:
@@ -75,8 +80,9 @@ def _run_job(job, arguments: argparse.Namespace) -> Dict[str, object]:
         str(job.report),
         "--seed",
         str(job.seed),
-        "--stop-on-stable",
     ]
+    if not arguments.full_budget:
+        command.append("--stop-on-stable")
     if all(present):
         command.append("--resume")
     if arguments.cuda_terminal_evaluator:
@@ -126,6 +132,7 @@ def _write_summary(arguments: argparse.Namespace, records: list[Dict[str, object
             "checkpoint_interval": arguments.checkpoint_interval,
             "job_timeout_seconds": arguments.job_timeout_seconds,
             "max_artifact_mb": arguments.max_artifact_mb,
+            "full_budget": arguments.full_budget,
             "cuda_terminal_evaluator": arguments.cuda_terminal_evaluator,
             "elapsed_seconds": time.monotonic() - started,
             "status_counts": statuses,
