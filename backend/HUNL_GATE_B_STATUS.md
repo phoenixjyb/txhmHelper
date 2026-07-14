@@ -17,6 +17,10 @@ The versioned board-texture and private-hand buckets are active for Gate B. A
 `--stage flop`, supports checkpoint/resume, and creates a distinct Gate B
 artifact.
 
+Checkpoint artifacts persist the chance-sampling RNG state. Resumed training
+continues with new deals rather than replaying its original seed prefix; legacy
+artifacts without that state are rejected for resume.
+
 ## First CUDA pilot — 2026-07-14
 
 Two independent CUDA-terminal pilots ran on the RTX 4090 for the fixed HUNL
@@ -58,14 +62,27 @@ cd /home/converge/data/yanbo/txhmHelper/backend/server
   --output ../artifacts/gate-b-heldout-20260714.json
 ```
 
+### Initial held-out diagnostic — 2026-07-14
+
+The first server report completed four held-out strata across three seeds with
+25 fresh iterations per exact/bucketed comparison. It reported 20.73% mean,
+20.48% median, and 36.98% maximum root-action difference; mean root total
+variation was 22.90%. This is well outside the protocol target and hard-review
+threshold.
+
+At this intentionally short depth the result combines training/sampling noise
+with abstraction error, so it is a **failed pre-convergence diagnostic**, not a
+measurement of the final bucket quality. It confirms the harness can reject an
+unsafe candidate. The protocol now requires exact and bucketed runs to satisfy
+within-seed stability before the held-out numbers are used for promotion.
+
 ## Next research gate
 
-1. Run the held-out report with at least three seeds and inspect the error
-   strata against the protocol thresholds.
-2. If the abstraction gate is acceptable, run larger checkpointed pilots using
-   the fixed run contract and evaluate within- and cross-seed stability.
-3. If it is not acceptable, refine bucket features or the action model before
-   increasing training depth.
+1. Establish a paired exact/bucketed checkpoint runner so each held-out case can
+   reach the within-seed stability gate before comparison.
+2. Re-run the held-out report at the matched stable checkpoint depth.
+3. Only then decide whether bucket features need refinement or larger bucketed
+   pilots are justified.
 
 Gate B remains offline research infrastructure. The deployed `/v1/solve`
 endpoint remains the bounded one-street CFR+ service; it does not read these

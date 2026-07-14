@@ -11,6 +11,7 @@ from hunl.turn_river_cfr import (
     TurnRiverCfrPlus,
     TurnRiverTrainingConfig,
 )
+from train_turn_river import _as_tuple
 
 try:
     import torch
@@ -68,6 +69,18 @@ class TurnRiverCfrPlusTest(unittest.TestCase):
         self.assertGreaterEqual(result.node_count, before)
         self.assertEqual(16, result.total_iterations)
         self.assertAlmostEqual(1.0, sum(result.strategy.values()), places=8)
+
+    def test_artifact_preserves_checkpoint_metadata(self):
+        trainer = TurnRiverCfrPlus(gate_config())
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "metadata.json"
+            trainer.save_artifact(artifact, metadata={"rng_state": random.Random(7).getstate(), "stage": "turn"})
+            resumed = TurnRiverCfrPlus.load_artifact(artifact, gate_config())
+
+        self.assertEqual("turn", resumed.artifact_metadata["stage"])
+        restored = random.Random()
+        restored.setstate(_as_tuple(resumed.artifact_metadata["rng_state"]))
+        self.assertEqual(random.Random(7).random(), restored.random())
 
     def test_flop_gate_traverses_flop_turn_and_river_information_sets(self):
         config = FlopTurnRiverTrainingConfig(

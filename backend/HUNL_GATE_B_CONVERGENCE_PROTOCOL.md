@@ -13,6 +13,8 @@ Every candidate run records:
 - Full game/action configuration and bucket flags.
 - Case manifest version, pot, stacks, position, checkpoint cadence, iteration
   count, independent seeds, and terminal evaluator.
+- The serialized `random.Random` state at every checkpoint, so resume samples
+  new chance deals rather than replaying the original seed prefix.
 - GPU/device details, artifact size, elapsed time, node count, and every root
   policy checkpoint delta.
 
@@ -27,25 +29,31 @@ contracts.
 - CPU and CUDA terminal tests pass.
 - Exact and bucketed runs use the same sampled deals for each case/seed pair.
 - Checkpoint/resume preserves the root strategy within `1e-12` per action.
+- Resume restores the persisted RNG state; artifacts without it cannot be
+  resumed safely.
 - All artifacts load only with their matching configuration.
 
-### 2. Held-out abstraction gate
+### 2. Within-seed policy stability gate
+
+For both the exact reference and bucketed candidate, train in fixed checkpoints
+until the last four checkpoint deltas are all `<= 1%` at the root. A one-off
+low delta is insufficient. Do not interpret a held-out exact-versus-bucketed
+difference before this gate: otherwise it mixes sampling/training noise with
+abstraction error.
+
+### 3. Held-out abstraction gate
 
 Use `server/validate_gate_b_abstraction.py` with the versioned held-out
 manifest. The cases must be outside the pilot spot set.
 
-- At least four board/private-hand strata and three independent seeds.
+- At least four board/private-hand strata and three independent seeds, using
+  the same stable iteration/checkpoint contract for exact and bucketed runs.
 - Report maximum root-action error and total variation between exact and
   bucketed policies for every case/seed pair.
 - Research-review target: median maximum action error `<= 5%`; hard review
   stop: any held-out maximum action error `> 15%`.
 
 These are practical abstraction thresholds, not exploitability guarantees.
-
-### 3. Within-seed policy stability gate
-
-For each seed, train in fixed checkpoints until the last four checkpoint deltas
-are all `<= 1%` at the root. A one-off low delta is insufficient.
 
 ### 4. Cross-seed stability gate
 

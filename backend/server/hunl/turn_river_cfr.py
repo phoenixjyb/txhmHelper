@@ -121,6 +121,7 @@ class TurnRiverCfrPlus:
         self.config = config or TurnRiverTrainingConfig()
         self.nodes: Dict[str, CfrPlusNode] = {}
         self.total_iterations = 0
+        self.artifact_metadata: Dict[str, object] = {}
 
     def train(
         self,
@@ -220,6 +221,7 @@ class TurnRiverCfrPlus:
     def save_artifact(self, path: str | Path, metadata: Dict[str, object] | None = None) -> None:
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
+        self.artifact_metadata = dict(metadata or {})
         payload = {
             "artifact_version": self.config.artifact_version,
             "training_config": {
@@ -228,7 +230,7 @@ class TurnRiverCfrPlus:
                 "use_board_texture_buckets": self.config.use_board_texture_buckets,
                 "use_private_hand_buckets": self.config.use_private_hand_buckets,
             },
-            "metadata": metadata or {},
+            "metadata": self.artifact_metadata,
             "total_iterations": self.total_iterations,
             "nodes": {key: node.to_dict() for key, node in self.nodes.items()},
         }
@@ -285,6 +287,7 @@ class TurnRiverCfrPlus:
         trainer = cls(config)
         trainer.nodes = {key: CfrPlusNode.from_dict(value) for key, value in payload["nodes"].items()}
         trainer.total_iterations = int(payload.get("total_iterations", 0))
+        trainer.artifact_metadata = dict(payload.get("metadata", {}))
         return trainer
 
     def _cfr(

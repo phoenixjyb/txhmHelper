@@ -11,6 +11,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import median
 from typing import Dict, Iterable, Sequence
 
 from .buckets import board_texture_bucket, private_hand_bucket
@@ -174,7 +175,9 @@ def _summary(results: Sequence[Dict[str, object]]) -> Dict[str, float | int]:
     return {
         "run_count": len(results),
         "mean_max_root_action_error": sum(max_errors) / len(max_errors),
+        "median_max_root_action_error": median(max_errors),
         "max_root_action_error": max(max_errors),
         "mean_root_total_variation": sum(variations) / len(variations),
+        "median_root_total_variation": median(variations),
         "max_root_total_variation": max(variations),
     }

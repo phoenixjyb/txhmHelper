@@ -43,6 +43,13 @@ def main() -> None:
         trainer = FlopTurnRiverCfrPlus(config) if arguments.stage == "flop" else TurnRiverCfrPlus(config)
     hero, board = _cards(arguments.hero, 2), _cards(arguments.board, 3 if arguments.stage == "flop" else 4)
     generator = random.Random(arguments.seed)
+    if arguments.resume:
+        serialized_state = trainer.artifact_metadata.get("rng_state")
+        if serialized_state is None:
+            raise ValueError(
+                "Artifact cannot resume safely because it has no saved RNG state. Start a new artifact instead."
+            )
+        generator.setstate(_as_tuple(serialized_state))
     interval = arguments.checkpoint_interval or arguments.iterations
     if interval < 1:
         raise ValueError("checkpoint_interval must be positive.")
@@ -84,6 +91,7 @@ def main() -> None:
                 "last_iterations": step,
                 "total_iterations": result.total_iterations,
                 "root_policy_delta_from_previous_checkpoint": delta,
+                "rng_state": generator.getstate(),
             },
         )
         print(json.dumps({**result.__dict__, "artifact": str(arguments.artifact), "root_policy_delta": delta}, sort_keys=True))
@@ -104,6 +112,13 @@ def _max_policy_delta(previous: dict[str, float], current: dict[str, float]) -> 
     if set(previous) != set(current):
         raise ValueError("Cannot compare root strategies with different action sets.")
     return max(abs(previous[action] - current[action]) for action in previous)
+
+
+def _as_tuple(value: object) -> object:
+    """Restore JSON-decoded random.Random state lists to the tuple form it expects."""
+    if isinstance(value, list):
+        return tuple(_as_tuple(item) for item in value)
+    return value
 
 
 if __name__ == "__main__":

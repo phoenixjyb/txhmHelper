@@ -22,6 +22,7 @@ class GateBValidationTest(unittest.TestCase):
         self.assertEqual(4, report["run_count"])
         self.assertEqual(2, len(report["strata"]))
         self.assertGreaterEqual(report["summary"]["max_root_action_error"], 0.0)
+        self.assertGreaterEqual(report["summary"]["median_max_root_action_error"], 0.0)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "report.json"
             write_report(report, output)
