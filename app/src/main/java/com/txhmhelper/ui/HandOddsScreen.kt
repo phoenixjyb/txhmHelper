@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -987,7 +988,7 @@ private fun PokerSeatChip(
         !player.isInHand -> Color(0xFF8A8A8A)
         else -> Color.White.copy(alpha = 0.42f)
     }
-    Box(modifier = modifier.width(112.dp)) {
+    Box(modifier = modifier.width(128.dp)) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -997,34 +998,38 @@ private fun PokerSeatChip(
             border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
             shadowElevation = if (selected) 6.dp else 2.dp
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                Text(
-                    text = player.name,
-                    color = if (player.isInHand) Color.White else Color.White.copy(alpha = 0.55f),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (player.isInHand) {
-                        "${player.stackBb.formatBb()}  •  ${player.streetCommittedBb.formatBb()} in"
-                    } else {
-                        "FOLDED"
-                    },
-                    color = when {
-                        !player.isInHand -> Color(0xFFFF8A80)
-                        selected -> PokerGold
-                        else -> Color.White.copy(alpha = 0.78f)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (player.isInHand) FontWeight.Normal else FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                PlayerAvatar(player = player, selected = selected)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = player.name,
+                        color = if (player.isInHand) Color.White else Color.White.copy(alpha = 0.55f),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (player.isInHand) {
+                            "${player.stackBb.formatBb()}  •  ${player.streetCommittedBb.formatBb()} in"
+                        } else {
+                            "FOLDED"
+                        },
+                        color = when {
+                            !player.isInHand -> Color(0xFFFF8A80)
+                            selected -> PokerGold
+                            else -> Color.White.copy(alpha = 0.78f)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (player.isInHand) FontWeight.Normal else FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
         if (isDealer) {
@@ -1044,6 +1049,33 @@ private fun PokerSeatChip(
                     fontWeight = FontWeight.Black
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerAvatar(
+    player: com.txhmhelper.model.TablePlayer,
+    selected: Boolean
+) {
+    val avatars = listOf("🦊", "🐼", "🐯", "🐸", "🦄", "🐙", "🐧", "🐨", "🦁")
+    val avatarColors = listOf(
+        Color(0xFFFFB4A2), Color(0xFFBDE0FE), Color(0xFFFFD166),
+        Color(0xFFB7E4C7), Color(0xFFE7C6FF), Color(0xFFA9DEF9),
+        Color(0xFFCDEAC0), Color(0xFFF7CAD0), Color(0xFFFFD6A5)
+    )
+    Surface(
+        modifier = Modifier.size(30.dp),
+        shape = CircleShape,
+        color = if (player.isInHand) avatarColors[player.id % avatarColors.size] else Color(0xFF777777),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) PokerGold else Color.White.copy(alpha = 0.55f))
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = avatars[player.id % avatars.size],
+                style = MaterialTheme.typography.titleSmall,
+                color = if (player.isInHand) Color.Unspecified else Color.White.copy(alpha = 0.55f)
+            )
         }
     }
 }
