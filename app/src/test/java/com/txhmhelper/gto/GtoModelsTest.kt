@@ -26,4 +26,26 @@ class GtoModelsTest {
         assertTrue(json.contains("\"effective_stack\":100.0"))
         assertTrue(json.contains("\"bet_sizing\":[0.33,0.5]"))
     }
+
+    @Test
+    fun tableSolveRequestKeepsExactCommitmentAndActionActor() {
+        val request = GtoTableSolveRequest(
+            stage = "flop",
+            hole = listOf("As", "Kd"),
+            board = listOf("Jh", "Td", "2c"),
+            potBeforeStreet = 10.0,
+            effectiveStack = 100.0,
+            heroPosition = "ip",
+            actions = listOf(GtoTableAction("villain", "bet", 6.0))
+        )
+        val json = Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
+            .adapter(GtoTableSolveRequest::class.java)
+            .toJson(request)
+
+        assertTrue(json.contains("\"pot_before_street\":10.0"))
+        assertTrue(json.contains("\"hero_position\":\"ip\""))
+        assertTrue(json.contains("\"amount_to\":6.0"))
+    }
 }

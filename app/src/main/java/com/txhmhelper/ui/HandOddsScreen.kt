@@ -473,12 +473,20 @@ private fun GameContextPanel(
 
             Text(
                 text = when {
-                    session.playersInHand != 2 -> "GTO: heads-up only; multiway shows equity and action tracking"
-                    session.actions.isNotEmpty() -> "GTO: action timeline recorded; exact amount-aware solver wiring is next"
-                    else -> "GTO: heads-up model available"
+                    session.players.size != 2 || session.playersInHand != 2 -> "GTO: heads-up only; multiway shows equity and action tracking"
+                    session.isCurrentStreetComplete -> "GTO: street complete — advance the street after cards are dealt"
+                    session.selectedPlayerId != 0 -> "GTO: record the opponent's decision; analysis runs on Hero's turn"
+                    session.potBeforeCurrentStreetBb <= 0.0 -> "GTO: record the preflop pot before postflop analysis"
+                    else -> "GTO: heads-up CFR+ uses this street's exact pot, stack, and action amounts"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (session.playersInHand == 2 && session.actions.isEmpty()) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
+                color = if (
+                    session.players.size == 2 &&
+                    session.playersInHand == 2 &&
+                    session.selectedPlayerId == 0 &&
+                    !session.isCurrentStreetComplete &&
+                    session.potBeforeCurrentStreetBb > 0.0
+                ) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }

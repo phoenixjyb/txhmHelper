@@ -259,20 +259,32 @@ class HandOddsViewModel(
 
     private fun fetchGtoAdvice(boardState: BoardState, session: GameSession) {
         val boardCount = boardState.community.count { it != null }
-        if (session.playersInHand != 2 || session.actions.isNotEmpty() || boardState.hole.any { it == null } || boardCount !in setOf(0, 3, 4, 5)) return
+        if (
+            session.players.size != 2 ||
+            session.playersInHand != 2 ||
+            session.selectedPlayerId != 0 ||
+            session.isCurrentStreetComplete ||
+            session.potBeforeCurrentStreetBb <= 0.0 ||
+            boardState.hole.any { it == null } ||
+            boardCount !in setOf(3, 4, 5)
+        ) return
 
         gtoJob?.cancel()
         _uiState.update { it.copy(gtoAdvice = null, gtoStatus = GtoStatus.LOADING) }
         gtoJob = viewModelScope.launch {
             try {
-                val response = gtoRepository.solve(
+                val response = gtoRepository.solveTable(
                     stage = boardState.stage(),
                     hole = boardState.hole.filterNotNull(),
-                    board = boardState.community
+                    board = boardState.community,
+                    session = session
                 )
                 if (_uiState.value.boardState != boardState || _uiState.value.gameSession != session) return@launch
                 val bestAction = response.strategy.maxByOrNull { it.value }
-                val text = bestAction?.let { "${it.key} ${(it.value * 100).toInt()}%" }
+                val line = response.actionHistory.takeIf { it.isNotEmpty() }?.joinToString(" → ")
+                val text = bestAction?.let {
+                    "${line?.plus(" • ") ?: ""}${it.key} ${(it.value * 100).toInt()}%"
+                }
                     ?: "No action returned."
                 _uiState.update { it.copy(gtoAdvice = text, gtoStatus = GtoStatus.AVAILABLE) }
             } catch (exception: CancellationException) {

@@ -32,6 +32,7 @@ data class TablePlayer(
 
 data class RecordedAction(
     val street: GameStreet,
+    val playerId: Int,
     val playerName: String,
     val type: PlayerActionType,
     val amountBb: Double,
@@ -55,6 +56,20 @@ data class GameSession(
     val playersInHand: Int get() = players.count { it.isInHand }
     val toCallBb: Double get() = players.filter { it.isInHand }.maxOfOrNull { it.streetCommittedBb } ?: 0.0
     val selectedPlayer: TablePlayer? get() = players.firstOrNull { it.id == selectedPlayerId && it.isInHand }
+    val currentStreetActions: List<RecordedAction> get() = actions.filter { it.street == street }
+    val potBeforeCurrentStreetBb: Double get() =
+        (potBb - players.sumOf { it.streetCommittedBb }).coerceAtLeast(0.0)
+    val effectiveStackAtCurrentStreetBb: Double get() =
+        players.filter { it.isInHand }.minOfOrNull { it.stackBb + it.streetCommittedBb } ?: 0.0
+
+    val isCurrentStreetComplete: Boolean
+        get() {
+            val streetActions = currentStreetActions
+            val last = streetActions.lastOrNull()?.type ?: return false
+            return last == PlayerActionType.CALL ||
+                last == PlayerActionType.FOLD ||
+                (streetActions.size >= 2 && streetActions.takeLast(2).all { it.type == PlayerActionType.CHECK })
+        }
 
     fun selectPlayer(playerId: Int): GameSession {
         require(players.any { it.id == playerId && it.isInHand }) { "Select a player still in the hand." }
@@ -101,7 +116,7 @@ data class GameSession(
         return copy(
             players = updatedPlayers,
             potBb = updatedPot,
-            actions = actions + RecordedAction(street, player.name, type, target, updatedPot),
+            actions = actions + RecordedAction(street, player.id, player.name, type, target, updatedPot),
             selectedPlayerId = nextPlayer.id
         )
     }

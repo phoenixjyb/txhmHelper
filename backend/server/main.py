@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field
 from solver_cfr import solve_cfr
 from solver_v2 import HeadsUpPostflopCfr, WeightedCombo
 from hunl.gpu import probe_gpu
+from table_context import TableAction, normalize_table_context
 
-app = FastAPI(title="TX Hold'em GTO API", version="0.3.0")
+app = FastAPI(title="TX Hold'em GTO API", version="0.4.0")
 
 
 class SolvePayload(BaseModel):
@@ -57,12 +58,41 @@ class V1SolvePayload(BaseModel):
     terminal_evaluator: Literal["cpu", "cuda"] = "cpu"
 
 
+class TableActionPayload(BaseModel):
+    """A real-table action recorded by the Android client for one street."""
+
+    player: Literal["hero", "villain"]
+    type: Literal["check", "bet", "call", "raise", "fold", "all_in"]
+    amount_to: Optional[float] = Field(default=None, gt=0)
+
+
+class TableSolvePayload(BaseModel):
+    """Heads-up table context with exact action amounts on the current street."""
+
+    stage: Literal["flop", "turn", "river"]
+    hole: List[str] = Field(..., min_length=2, max_length=2)
+    board: List[str] = Field(..., min_length=3, max_length=5)
+    pot_before_street: float = Field(..., gt=0)
+    effective_stack: float = Field(..., gt=0)
+    hero_position: Literal["oop", "ip"] = "oop"
+    actions: List[TableActionPayload] = Field(default_factory=list, max_length=4)
+    villain_range: Optional[List[RangeComboPayload]] = None
+    bet_sizing: List[float] = Field(default_factory=lambda: [0.33, 0.5, 1.0], min_length=1, max_length=8)
+    raise_sizing: List[float] = Field(default_factory=lambda: [0.75, 1.5], min_length=1, max_length=8)
+    raise_cap: int = Field(default=1, ge=0, le=1)
+    rake_pct: float = Field(default=0.0, ge=0, le=0.10)
+    rake_cap: float = Field(default=0.0, ge=0)
+    iterations: int = Field(default=5_000, ge=100, le=50_000)
+    terminal_evaluator: Literal["cpu", "cuda"] = "cpu"
+
+
 class V1SolveResult(BaseModel):
     strategy: Dict[str, float]
     iterations: int
     node_count: int
     model: str
     terminal_evaluator: str
+    action_history: List[str] = Field(default_factory=list)
     note: str
 
 
@@ -92,7 +122,7 @@ def health():
     gpu = probe_gpu()
     return {
         "status": "ok",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "solver": "heads-up-postflop-cfr-plus-v1",
         "gpu_terminal_evaluator_available": gpu.available,
         "gpu_device": gpu.device_name,
@@ -120,6 +150,50 @@ def post_solve(payload: SolvePayload):
 @app.post("/v1/solve", response_model=SolveJobResponse, status_code=202)
 def create_v1_solve(payload: V1SolvePayload):
     _validate_v1_payload(payload)
+    return _enqueue_v1_solve(payload)
+
+
+@app.post("/v1/table/solve", response_model=SolveJobResponse, status_code=202)
+def create_table_solve(payload: TableSolvePayload):
+    expected_board_cards = {"flop": 3, "turn": 4, "river": 5}
+    if len(payload.board) != expected_board_cards[payload.stage]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{payload.stage} requires {expected_board_cards[payload.stage]} board cards.",
+        )
+    try:
+        normalized = normalize_table_context(
+            pot_before_street=payload.pot_before_street,
+            effective_stack=payload.effective_stack,
+            hero_position=payload.hero_position,
+            actions=[TableAction(item.player, item.type, item.amount_to) for item in payload.actions],
+            bet_sizing=payload.bet_sizing,
+            raise_sizing=payload.raise_sizing,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    solver_payload = V1SolvePayload(
+        stage=payload.stage,
+        hole=payload.hole,
+        board=payload.board,
+        pot=payload.pot_before_street,
+        effective_stack=payload.effective_stack,
+        hero_position=payload.hero_position,
+        action_history=normalized.action_history,
+        villain_range=payload.villain_range,
+        bet_sizing=normalized.bet_sizing,
+        raise_sizing=normalized.raise_sizing,
+        raise_cap=payload.raise_cap,
+        rake_pct=payload.rake_pct,
+        rake_cap=payload.rake_cap,
+        iterations=payload.iterations,
+        terminal_evaluator=payload.terminal_evaluator,
+    )
+    _validate_v1_payload(solver_payload)
+    return _enqueue_v1_solve(solver_payload)
+
+
+def _enqueue_v1_solve(payload: V1SolvePayload) -> SolveJobResponse:
     cache_key = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     with jobs_lock:
         existing_job_id = cache.get(cache_key)
@@ -183,6 +257,7 @@ def _run_v1_solve(job_id: str, payload: V1SolvePayload) -> None:
             node_count=solved.node_count,
             model=solved.model,
             terminal_evaluator=solved.terminal_evaluator,
+            action_history=list(payload.action_history),
             note=(
                 "CFR+ in a bounded heads-up postflop game: weighted villain range, "
                 "configured bet sizes, one capped raise, and sampled runouts. "

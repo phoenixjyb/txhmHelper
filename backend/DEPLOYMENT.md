@@ -99,10 +99,40 @@ The Hero must be the next player to act. `hero_position: "ip"` is therefore
 valid only after the out-of-position opponent has acted (for example,
 `action_history: ["check"]`).
 
+### Exact table-action adapter
+
+`POST /v1/table/solve` accepts the action amounts recorded by the Android
+table UI and converts them into the bounded solver's pot-relative labels. It
+is still heads-up and postflop only, but avoids making the client guess whether
+an exact `6bb` bet should be treated as `bet_50` or another size.
+
+```json
+{
+  "stage": "flop",
+  "hole": ["As", "Kd"],
+  "board": ["Jh", "Td", "2c"],
+  "pot_before_street": 10.0,
+  "effective_stack": 100.0,
+  "hero_position": "ip",
+  "actions": [{"player": "villain", "type": "bet", "amount_to": 6.0}],
+  "iterations": 3000,
+  "terminal_evaluator": "cuda"
+}
+```
+
+`amount_to` means the player's total commitment on the current street, not
+the incremental amount. The response is a normal queued solve job; completed
+results include `action_history` (for example `["bet_60"]`) so the mapping is
+visible to the client. The adapter rejects a completed street or a line where
+Hero is not the next actor.
+
 ## 5) Solver notes
 - The compatibility endpoint (`/solve`) runs the original chance-sampled one-street CFR game.
 - `/v1/solve` runs CFR+ in a stronger, still-bounded heads-up postflop game: weighted villain range, IP/OOP, action history, multiple bet sizes, one capped raise, and rake inputs. Unknown runouts are sampled to river; subsequent-street decisions are not yet modeled.
-- The server is CPU-only today. Its health response reports `gpu_accelerated: false`; do not label it GPU accelerated until a CUDA evaluator and benchmarks are deployed.
+- The CFR tree traversal remains CPU-bound. When requested and available,
+  `terminal_evaluator: "cuda"` batches terminal showdown payoffs on CUDA; the
+  health response reports whether this evaluator is available. Do not describe
+  this as a fully GPU-resident solver.
 - Run `python -m unittest -v test_solver_cfr.py test_solver_v2.py test_api_v1.py` before deployment. Benchmark the iteration count on the 4090 server before exposing longer solves to the app.
 
 ## 6) Client config
