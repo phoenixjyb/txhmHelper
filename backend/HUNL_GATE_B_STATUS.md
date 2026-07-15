@@ -191,6 +191,44 @@ cd /home/converge/data/yanbo/txhmHelper/backend/server
   --cuda-terminal-evaluator
 ```
 
+### Dry-broadway acceptance at 6,000 iterations
+
+The resumed dry-broadway artifacts completed 6,000 cumulative iterations on
+each of the three matched seeds. This bounded stratum now passes both gates:
+
+| Measure | Result | Gate |
+| --- | ---: | ---: |
+| Exact-vs-bucketed median root-action error | 1.81% | <= 5% target |
+| Exact-vs-bucketed maximum root-action error | 3.45% | <= 15% hard stop |
+| Bucketed cross-seed maximum root-action drift | 0.53% | <= 2.5% |
+| Exact cross-seed maximum root-action drift | 1.60% | <= 2.5% |
+
+This accepts the **dry-broadway stratum only** for the bounded v2 model. It
+does not promote v2 to API serving, because the other three held-out strata
+have not yet passed the same full-budget and cross-seed checks.
+
+## Next research gate — remaining three strata
+
+Use the existing deep artifact directory. The runner skips the accepted
+dry-broadway pairs and trains the nine missing wet-connected, paired-trips, and
+monotone-high pairs from scratch at 6,000 iterations:
+
+```bash
+cd /home/converge/data/yanbo/txhmHelper/backend/server
+.venv/bin/python run_gate_b_heldout_batch.py \
+  --seeds 20260716,20260717,20260718 \
+  --output-dir ../artifacts/gate-b-v2-rank-profile-deep-20260715 \
+  --iterations-per-job 6000 --checkpoint-interval 50 \
+  --job-timeout-seconds 7200 --max-artifact-mb 2048 \
+  --full-budget \
+  --cuda-terminal-evaluator
+```
+
+After the batch, regenerate both `stable-comparison` and `cross-seed` reports
+from the full directory. Only an all-four-strata pass permits the next backend
+step: a constrained artifact-selection API behind explicit bounded-solver
+labels.
+
 Only after v2 passes the held-out and cross-seed gates can we design the
 artifact-selection API. It will still be a bounded postflop research solver,
 not full-game or multiway GTO.
