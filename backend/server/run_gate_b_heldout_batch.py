@@ -28,10 +28,17 @@ def main() -> None:
         action="store_true",
         help="Run every requested iteration even after within-seed stability; use for cross-seed convergence pilots.",
     )
+    parser.add_argument(
+        "--continue-stable",
+        action="store_true",
+        help="Resume already-stable artifact pairs for another full iteration budget instead of skipping them.",
+    )
     parser.add_argument("--cuda-terminal-evaluator", action="store_true")
     arguments = parser.parse_args()
     if min(arguments.iterations_per_job, arguments.checkpoint_interval, arguments.job_timeout_seconds, arguments.max_artifact_mb) < 1:
         raise ValueError("Iteration, interval, timeout, and artifact limits must be positive.")
+    if arguments.continue_stable and not arguments.full_budget:
+        raise ValueError("--continue-stable requires --full-budget to avoid immediately stopping at the prior stability result.")
 
     seeds = [int(value.strip()) for value in arguments.seeds.split(",") if value.strip()]
     jobs = build_held_out_jobs(load_held_out_cases(arguments.manifest), seeds, arguments.output_dir)
@@ -49,7 +56,8 @@ def main() -> None:
 
 def _run_job(job, arguments: argparse.Namespace) -> Dict[str, object]:
     stable = stable_report_summary(job.report)
-    if stable is not None:
+    resuming_stable = stable is not None
+    if resuming_stable and not arguments.continue_stable:
         return {"label": job.label, "status": "already_stable", **stable}
 
     artifacts = (job.exact_artifact, job.bucketed_artifact)
@@ -112,6 +120,7 @@ def _run_job(job, arguments: argparse.Namespace) -> Dict[str, object]:
     return {
         "label": job.label,
         "status": "stable" if stable is not None else "unstable_after_budget",
+        "resumed_from_stable": resuming_stable,
         "elapsed_seconds": time.monotonic() - started,
         "artifact_sizes": sizes,
         **(stable or {}),
@@ -133,6 +142,7 @@ def _write_summary(arguments: argparse.Namespace, records: list[Dict[str, object
             "job_timeout_seconds": arguments.job_timeout_seconds,
             "max_artifact_mb": arguments.max_artifact_mb,
             "full_budget": arguments.full_budget,
+            "continue_stable": arguments.continue_stable,
             "cuda_terminal_evaluator": arguments.cuda_terminal_evaluator,
             "elapsed_seconds": time.monotonic() - started,
             "status_counts": statuses,

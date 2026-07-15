@@ -88,6 +88,11 @@ the within-seed prerequisite; full-budget mode deliberately continues to the
 requested iteration cap so an early low checkpoint delta cannot masquerade as
 repeatability.
 
+Use `--continue-stable --full-budget` to resume an already-stable matched pair
+for another bounded iteration budget. This retains its serialized RNG state and
+checkpoint history, producing a cumulative run rather than restarting or
+mixing independent samples.
+
 ### 5. Resource and stop rules
 
 - Stop before an artifact exceeds 2 GB or a checkpoint exceeds 30 minutes.

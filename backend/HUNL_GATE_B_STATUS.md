@@ -171,6 +171,26 @@ Then run `compare_gate_b_cross_seed_artifacts.py` against the same deep
 directory. Only if the exact reference clears 2.5% pairwise should a remaining
 exact-vs-bucketed gap be attributed to the abstraction.
 
+### First full-budget result
+
+At 3,000 cumulative iterations, the three dry-broadway exact-vs-bucketed
+comparisons improved to 3.28% median, 4.14% mean, and 6.88% maximum
+root-action error. The bucketed policy was cross-seed repeatable (0.96%
+maximum), but the exact reference was not yet: its worst pairwise difference
+was 3.74%, narrowly above the 2.5% gate. Resume these three artifacts for a
+second 3,000-iteration full budget rather than changing the abstraction:
+
+```bash
+cd /home/converge/data/yanbo/txhmHelper/backend/server
+.venv/bin/python run_gate_b_heldout_batch.py \
+  --seeds 20260716,20260717,20260718 \
+  --output-dir ../artifacts/gate-b-v2-rank-profile-deep-20260715 \
+  --iterations-per-job 3000 --checkpoint-interval 50 \
+  --job-timeout-seconds 3600 --max-artifact-mb 2048 --max-jobs 3 \
+  --full-budget --continue-stable \
+  --cuda-terminal-evaluator
+```
+
 Only after v2 passes the held-out and cross-seed gates can we design the
 artifact-selection API. It will still be a bounded postflop research solver,
 not full-game or multiway GTO.
